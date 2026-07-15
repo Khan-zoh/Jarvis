@@ -2,6 +2,7 @@
   "name": "jarvis",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "description": "Jarvis - resident Windows voice assistant (monorepo root)",
   "workspaces": [
     "packages/*"
@@ -10,7 +11,7 @@
     "dev": "npm run dev --workspace=packages/app",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "fetch-models": "node scripts/fetch-models.js"
+    "fetch-models": "node scripts/fetch-models.ts"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
