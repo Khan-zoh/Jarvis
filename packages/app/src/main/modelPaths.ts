@@ -1,0 +1,86 @@
+// Single source of truth for "are the voice-stack models present on disk". Used by app startup
+// (to decide whether to prompt the user to run `npm run fetch-models`) and by the settings UI
+// (to show model status). See cdd/plan/voice-pipeline.md ("Model/binary provisioning") and
+// cdd/tasks/fetch-models.md for the contract this implements.
+
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
+export interface ModelPaths {
+  whisperCli: string;
+  whisperModel: string;
+  piperExe: string;
+  piperVoice: string;
+  sileroVad: string;
+  /** Only populated (and only required) when the second brain is enabled. */
+  embedModel?: string;
+  /** Only populated (and only required) when the second brain is enabled. */
+  embedTokenizer?: string;
+}
+
+export interface ModelPathsMissing {
+  missing: string[];
+}
+
+export interface ResolveModelPathsOptions {
+  /** Directory models were fetched into. Defaults to `<cwd>/models`, matching where
+   * `scripts/fetch-models.ts` writes by default when run from the repo root. */
+  modelsRoot?: string;
+  /** Whether the second brain feature is enabled — gates whether the embedder files are
+   * required for the result to be considered complete. */
+  brainEnabled?: boolean;
+}
+
+function defaultModelsRoot(): string {
+  return resolve(process.cwd(), 'models');
+}
+
+/**
+ * Resolves every model/binary path the voice pipeline (and, if enabled, the second-brain
+ * embedder) needs. Returns the full path bundle if everything required is present on disk, or
+ * `{ missing: [...] }` naming which pieces are absent so the caller can prompt the user to run
+ * `npm run fetch-models` (optionally with `--with-brain`).
+ */
+export function resolveModelPaths(
+  opts: ResolveModelPathsOptions = {}
+): ModelPaths | ModelPathsMissing {
+  const modelsRoot = opts.modelsRoot ?? defaultModelsRoot();
+  const brainEnabled = opts.brainEnabled ?? false;
+
+  const whisperCli = join(modelsRoot, 'bin', 'whisper-cli.exe');
+  const whisperModel = join(modelsRoot, 'whisper', 'ggml-small.en.bin');
+  const piperExe = join(modelsRoot, 'bin', 'piper', 'piper.exe');
+  const piperVoice = join(modelsRoot, 'piper', 'en_US-lessac-medium.onnx');
+  const piperVoiceConfig = join(modelsRoot, 'piper', 'en_US-lessac-medium.onnx.json');
+  const sileroVad = join(modelsRoot, 'vad', 'silero_vad.onnx');
+  const embedModel = join(modelsRoot, 'embed', 'model.onnx');
+  const embedTokenizer = join(modelsRoot, 'embed', 'tokenizer.json');
+
+  const missing: string[] = [];
+  if (!existsSync(whisperCli)) missing.push('whisperCli');
+  if (!existsSync(whisperModel)) missing.push('whisperModel');
+  if (!existsSync(piperExe)) missing.push('piperExe');
+  if (!existsSync(piperVoice) || !existsSync(piperVoiceConfig)) missing.push('piperVoice');
+  if (!existsSync(sileroVad)) missing.push('sileroVad');
+  if (brainEnabled) {
+    if (!existsSync(embedModel)) missing.push('embedModel');
+    if (!existsSync(embedTokenizer)) missing.push('embedTokenizer');
+  }
+
+  if (missing.length > 0) {
+    return { missing };
+  }
+
+  const result: ModelPaths = {
+    whisperCli,
+    whisperModel,
+    piperExe,
+    piperVoice,
+    sileroVad
+  };
+  if (brainEnabled) {
+    result.embedModel = embedModel;
+    result.embedTokenizer = embedTokenizer;
+  }
+  return result;
+}

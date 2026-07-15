@@ -1,5 +1,13 @@
 export type BackendId = 'claude' | 'codex';
 
+export type AssistantState =
+  | 'idle'
+  | 'listening'
+  | 'transcribing'
+  | 'thinking'
+  | 'speaking'
+  | 'error';
+
 export interface AppConfig {
   agentName: string;                       // display + wake name, default "Jarvis"
   voice: {
