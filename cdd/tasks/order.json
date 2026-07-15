@@ -1,0 +1,85 @@
+{
+  "project": "jarvis",
+  "note": "Tasks within the same group are independent and may run in parallel. Groups run in order. Gates are manual verification checkpoints defined in cdd/plan/testing-strategy.md.",
+  "groups": [
+    {
+      "phase": "0-foundation",
+      "tasks": ["scaffold"]
+    },
+    {
+      "phase": "1-core",
+      "tasks": ["app-core", "fetch-models"]
+    },
+    {
+      "phase": "2-parallel-tracks",
+      "tasks": ["design-system-ui-shell", "audio-capture", "agent-core", "tools-mcp-core", "brain-store"]
+    },
+    {
+      "phase": "3-voice-components",
+      "tasks": ["wakeword", "vad-endpointing", "stt-whisper", "tts-piper"]
+    },
+    {
+      "phase": "4-voice-integration",
+      "tasks": ["voice-pipeline"],
+      "gate": "A — live wake→transcribe→echo works, latency budget met"
+    },
+    {
+      "phase": "5-backends",
+      "tasks": ["claude-backend", "codex-backend"],
+      "gate": "B — both smoke scripts stream real replies on subscription auth"
+    },
+    {
+      "phase": "6-google",
+      "tasks": ["google-auth"],
+      "then": ["google-tools"]
+    },
+    {
+      "phase": "7-end-to-end",
+      "tasks": ["wire-and-converse"],
+      "gate": "C — voice request 'what's on my calendar today' round-trips with spoken answer"
+    },
+    {
+      "phase": "8-settings",
+      "tasks": ["settings-ui"]
+    },
+    {
+      "phase": "9-second-brain",
+      "tasks": ["brain-integration"],
+      "gate": "C2 — 'remember that…' captures a note, a later question recalls it by voice, 'off the record' suppresses, consolidate promotes to profile"
+    },
+    {
+      "phase": "10-finish",
+      "tasks": ["packaging-hardening"],
+      "gate": "D — clean-machine install, first-run checklist to working assistant, uninstall"
+    },
+    {
+      "phase": "11-example-plugins (optional, post-1.0)",
+      "note": "Not required for 0.1. Each new capability is one plugin folder + one loader line — see cdd/plan/extending.md. smarthome-plugin is the reference implementation and the extensibility regression test.",
+      "tasks": ["smarthome-plugin"]
+    }
+  ],
+  "tasks": {
+    "scaffold":              { "file": "scaffold.md",              "deps": [] },
+    "app-core":              { "file": "app-core.md",              "deps": ["scaffold"] },
+    "fetch-models":          { "file": "fetch-models.md",          "deps": ["scaffold"] },
+    "design-system-ui-shell":{ "file": "design-system-ui-shell.md","deps": ["app-core"] },
+    "audio-capture":         { "file": "audio-capture.md",         "deps": ["scaffold"] },
+    "agent-core":            { "file": "agent-core.md",            "deps": ["app-core"] },
+    "tools-mcp-core":        { "file": "tools-mcp-core.md",        "deps": ["scaffold"] },
+    "brain-store":           { "file": "brain-store.md",           "deps": ["scaffold"] },
+    "wakeword":              { "file": "wakeword.md",              "deps": ["audio-capture", "fetch-models"] },
+    "vad-endpointing":       { "file": "vad-endpointing.md",       "deps": ["audio-capture", "fetch-models"] },
+    "stt-whisper":           { "file": "stt-whisper.md",           "deps": ["audio-capture", "fetch-models"] },
+    "tts-piper":             { "file": "tts-piper.md",             "deps": ["audio-capture", "fetch-models"] },
+    "voice-pipeline":        { "file": "voice-pipeline.md",        "deps": ["wakeword", "vad-endpointing", "stt-whisper", "tts-piper", "app-core"] },
+    "claude-backend":        { "file": "claude-backend.md",        "deps": ["agent-core", "tools-mcp-core"] },
+    "codex-backend":         { "file": "codex-backend.md",         "deps": ["agent-core", "tools-mcp-core"] },
+    "google-auth":           { "file": "google-auth.md",           "deps": ["tools-mcp-core", "app-core"] },
+    "google-tools":          { "file": "google-tools.md",          "deps": ["google-auth"] },
+    "wire-and-converse":     { "file": "wire-and-converse.md",     "deps": ["voice-pipeline", "claude-backend", "codex-backend", "google-tools", "design-system-ui-shell"] },
+    "settings-ui":           { "file": "settings-ui.md",           "deps": ["wire-and-converse"] },
+    "brain-integration":     { "file": "brain-integration.md",     "deps": ["brain-store", "tools-mcp-core", "agent-core", "wire-and-converse", "settings-ui"] },
+    "packaging-hardening":   { "file": "packaging-hardening.md",   "deps": ["brain-integration"] },
+    "smarthome-plugin":      { "file": "smarthome-plugin.md",      "deps": ["tools-mcp-core", "settings-ui"] }
+  }
+}

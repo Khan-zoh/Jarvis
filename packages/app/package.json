@@ -1,0 +1,20 @@
+{
+  "name": "@jarvis/app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && electron-vite build",
+    "test": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "electron": "43.1.1",
+    "electron-vite": "5.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
