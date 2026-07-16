@@ -1,0 +1,12 @@
+{
+  "audio": {
+    "sample_rate": 22050,
+    "quality": "medium"
+  },
+  "espeak": {
+    "voice": "en-us"
+  },
+  "num_symbols": 256,
+  "num_speakers": 1,
+  "piper_version": "1.0.0"
+}

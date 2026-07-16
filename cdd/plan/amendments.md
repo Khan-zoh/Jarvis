@@ -72,6 +72,11 @@ Consequences, binding on all plugin/task authors:
   separately at Gate A (capture→endpoint, STT, backend first token, first TTS audio, total).
 - Barge-in (wake-word during speaking) is at echo-retrigger risk without AEC: Gate A must test it
   live; fallback is disabling wake-during-speaking + hotkey interrupt.
+- MEASURED (2026-07-16): per-spawn whisper-cli with small.en = 3.1-3.4s (model reload dominates),
+  missing the 2.5s budget. voice-pipeline task must use a persistent `whisper-server.exe` process
+  (ships in the SAME pinned whisper.cpp release zip — add it to the fetch-models extract list),
+  loading the model once and serving per-utterance requests; keep WhisperCppStt spawn impl as
+  fallback. SpeechToText interface already hides the difference.
 
 ### A7. Early packaging smoke (new task after Phase 3, not Phase 10)
 Minimal electron-builder build proving: better-sqlite3, onnxruntime-node, porcupine load inside
