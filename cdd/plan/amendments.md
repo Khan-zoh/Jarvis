@@ -79,9 +79,15 @@ packaged Electron; tools-mcp + native deps work outside ASAR; whisper/piper/ffmp
 installed layout; one text-mode MCP turn works from the installed build on a clean profile.
 
 ### A8. Second-brain contract resolutions (before brain-store lands)
-- Writer ownership: ONE BrainStore engine class, but instantiated per-process safely — SQLite in
-  WAL mode with busy-timeout gives multi-process safety; all writes go through single-connection
-  serialized transactions; embedder instances are per-process but read-only artifacts.
+- Writer ownership: second-brain.md's "app owns writes / plugin only reads" contradicts the
+  brain_* tool catalog (add/append/consolidate ARE plugin-process writes). Resolution: BOTH
+  processes may write; safety comes from BrainStore itself — SQLite WAL + busy-timeout, every
+  write inside an immediate transaction, vault file writes atomic (temp+rename). Drop the
+  exclusivity sentence; the engine must be safe wherever it's instantiated.
+- Capture identity: "one captured/YYYY-MM-DD.md append-only file per day" contradicts the Note
+  API (per-item id/remove/undo). Resolution: one file PER CAPTURED ITEM —
+  `captured/YYYY-MM-DD-<slug>-<shortid>.md` — preserving per-item identity, dedup, deletion, and
+  reindexing; equally Obsidian-friendly.
 - Off-the-record semantics (also for brain-integration): "off the record" = observers/brain capture
   skipped; the turn IS still persisted to local session history. UI copy must say exactly that.
 

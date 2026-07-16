@@ -12,6 +12,11 @@ export interface ModelPaths {
   piperExe: string;
   piperVoice: string;
   sileroVad: string;
+  /** ffmpeg.exe / ffplay.exe are provisioned artifacts (cdd/plan/amendments.md A6) — audio
+   * capture and TTS playback take these paths as constructor args and never resolve ffmpeg
+   * from PATH. */
+  ffmpegExe: string;
+  ffplayExe: string;
   /** Only populated (and only required) when the second brain is enabled. */
   embedModel?: string;
   /** Only populated (and only required) when the second brain is enabled. */
@@ -53,6 +58,8 @@ export function resolveModelPaths(
   const piperVoice = join(modelsRoot, 'piper', 'en_US-lessac-medium.onnx');
   const piperVoiceConfig = join(modelsRoot, 'piper', 'en_US-lessac-medium.onnx.json');
   const sileroVad = join(modelsRoot, 'vad', 'silero_vad.onnx');
+  const ffmpegExe = join(modelsRoot, 'bin', 'ffmpeg', 'ffmpeg.exe');
+  const ffplayExe = join(modelsRoot, 'bin', 'ffmpeg', 'ffplay.exe');
   const embedModel = join(modelsRoot, 'embed', 'model.onnx');
   const embedTokenizer = join(modelsRoot, 'embed', 'tokenizer.json');
 
@@ -62,6 +69,8 @@ export function resolveModelPaths(
   if (!existsSync(piperExe)) missing.push('piperExe');
   if (!existsSync(piperVoice) || !existsSync(piperVoiceConfig)) missing.push('piperVoice');
   if (!existsSync(sileroVad)) missing.push('sileroVad');
+  if (!existsSync(ffmpegExe)) missing.push('ffmpegExe');
+  if (!existsSync(ffplayExe)) missing.push('ffplayExe');
   if (brainEnabled) {
     if (!existsSync(embedModel)) missing.push('embedModel');
     if (!existsSync(embedTokenizer)) missing.push('embedTokenizer');
@@ -76,7 +85,9 @@ export function resolveModelPaths(
     whisperModel,
     piperExe,
     piperVoice,
-    sileroVad
+    sileroVad,
+    ffmpegExe,
+    ffplayExe
   };
   if (brainEnabled) {
     result.embedModel = embedModel;
