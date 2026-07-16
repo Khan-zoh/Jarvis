@@ -1,7 +1,5 @@
 // @vitest-environment jsdom
-/// <reference lib="dom" />
-// The lib reference gives the renderer modules DOM types under tsc -p tsconfig.node.json
-// (which includes test/**); vitest runs this file in jsdom via the docblock above.
+// Typechecked under tsconfig.web.json (DOM lib); vitest runs it in jsdom via the docblock above.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MainView, relativeTime, renderTranscript } from '../src/renderer/main/app';
 import { createFakeApi, type FakeApi } from '../src/renderer/shared/fakeApi';

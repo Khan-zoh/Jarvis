@@ -5,5 +5,9 @@
     "types": [],
     "noEmit": true
   },
-  "include": ["src/renderer/**/*.ts"]
+  "include": [
+    "src/renderer/**/*.ts",
+    "test/overlay-view.test.ts",
+    "test/main-view.test.ts"
+  ]
 }

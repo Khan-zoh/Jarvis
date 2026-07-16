@@ -13,5 +13,6 @@
     "test/**/*.ts",
     "electron.vite.config.ts",
     "vitest.config.ts"
-  ]
+  ],
+  "exclude": ["test/overlay-view.test.ts", "test/main-view.test.ts"]
 }
