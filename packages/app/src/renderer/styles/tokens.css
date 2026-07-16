@@ -1,0 +1,38 @@
+/*
+ * jarvis design tokens — monochrome editorial.
+ * Binding contract: cdd/plan/ui-design.md. Only these five color values exist anywhere
+ * in the UI (light: ink/paper/grey-1/grey-2; dark reuses them inverted, with grey-1
+ * swapped for a dark hairline value). Emphasis comes from weight, size, italics and
+ * hairline rules — never from color.
+ */
+
+:root {
+  --ink: #0a0a0a;          /* near-black */
+  --paper: #fafaf7;        /* warm off-white */
+  --grey-1: #e8e8e4;       /* hairlines */
+  --grey-2: #8a8a86;       /* secondary text */
+
+  --font-display: 'Fraunces';     /* serif, high-contrast — headings, agent name, state word */
+  --font-body: 'Inter';           /* UI text */
+  --font-mono: 'IBM Plex Mono';   /* transcripts, tool lines, timestamps */
+
+  /* non-color primitives */
+  --hairline: 1px solid var(--grey-1);
+  --fade: 180ms ease-out;         /* the only motion: opacity/transform, <=200ms */
+}
+
+/* dark theme: ink <-> paper inverted, hairline grey adjusted; grey-2 reads on both */
+[data-theme='dark'] {
+  --ink: #fafaf7;
+  --paper: #0a0a0a;
+  --grey-1: #2a2a28;
+}
+
+/* follow the OS by default; an explicit data-theme wins */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ink: #fafaf7;
+    --paper: #0a0a0a;
+    --grey-1: #2a2a28;
+  }
+}
