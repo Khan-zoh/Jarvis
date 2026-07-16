@@ -91,6 +91,31 @@ installed layout; one text-mode MCP turn works from the installed build on a cle
 - Off-the-record semantics (also for brain-integration): "off the record" = observers/brain capture
   skipped; the turn IS still persisted to local session history. UI copy must say exactly that.
 
+### A9. Gate B0 spike results (2026-07-16; evidence + templates in spikes/b0/)
+Pinned: `@anthropic-ai/claude-agent-sdk` 0.3.211 (bundles CLI 2.1.211; peer-requires zod ^4 — we
+are on zod 4 ✓), `@openai/codex-sdk` 0.144.5 (spawns its own bundled codex.exe, never PATH).
+Binding corrections to agent-backends.md:
+- Claude config template = spikes/b0 A1-compliant snippet: `tools: []` (VERIFIED: only
+  `mcp__…` tools remain; without it 32 built-ins incl. Bash/Write are present), `permissionMode:
+  'dontAsk'`, `allowedTools: ['mcp__jarvisTools__*'…]`, `settingSources: []`, `strictMcpConfig:
+  true`, `alwaysLoad: true` on the MCP server, `includePartialMessages: true` (REQUIRED for text
+  deltas), `abortController` for interrupt.
+- There is NO login-status API: auth failure surfaces as `assistant.error:'authentication_failed'`
+  while result subtype reads `success` — init() needs its own probe; never trust subtype alone.
+- Claude MCP child failure → `init.mcp_servers[].status === 'failed'` (assert at Gate B). Codex
+  MCP child failure is SILENT — backend must health-check the tools server out-of-band.
+- Codex: per-instance `new Codex({ config: { mcp_servers: … } })` works (no config.toml patching —
+  delete ensureCodexConfig from the plan). `thread.runStreamed(input,{signal})`, resume via
+  `codex.resumeThread(id)`, abort throws AbortError with atomic-text semantics.
+- Codex emits NO incremental text deltas (one `item.completed:agent_message`): Codex replies reach
+  TTS only when complete — record as voice-latency consideration; sentence-queue TTS still applies.
+- Codex shell CANNOT be removed; containment = `sandboxMode:'read-only'` + `approvalPolicy:
+  'never'` (verified: model's file-write attempt failed "filesystem is read-only"). Accepted for
+  0.1: Codex tool surface is sandbox-contained, not suppressed.
+- **Machine blocker (user action)**: this machine's Claude login is Desktop host-managed; spawned
+  CLIs see "Not logged in". Before Gate B the user must run a standalone `claude /login` (or
+  `claude setup-token`), then re-run `spikes/b0/claude-spike.mjs` to close Claude items 1-2/4/5.
+
 ## Adopted — non-blocking (fold into later task briefs)
 - Google OAuth scopes: narrowest per operation; explain each scope at consent (google-auth).
 - Pin exact versions of both agent SDKs (no carets) (Gate B0/backends).
