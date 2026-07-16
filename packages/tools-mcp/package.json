@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.11.1",
+    "gray-matter": "^4.0.3",
+    "onnxruntime-node": "^1.27.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
