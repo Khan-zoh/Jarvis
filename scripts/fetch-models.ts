@@ -82,7 +82,8 @@ export interface SpecResult {
 //
 // Hash provenance (see the task report for the full table):
 //  - VERIFIED (direct download+hash in this environment): whisper-cli.exe + its DLLs, piper.exe,
-//    the piper voice .onnx.json, silero_vad.onnx, the bge tokenizer.json.
+//    the piper voice .onnx.json, silero_vad.onnx, the bge tokenizer.json, ffmpeg.exe (also
+//    cross-checked against gyan.dev's own published .zip.sha256, which matched).
 //  - VERIFIED (official HuggingFace LFS API checksum, not re-downloaded here because the files
 //    are 100+ MB): ggml-small.en.bin, the piper voice .onnx, the bge model.onnx.
 // No hash below is a placeholder; every one traces to a real source.
@@ -96,6 +97,14 @@ const PIPER_ZIP_URL = `https://github.com/rhasspy/piper/releases/download/${PIPE
 
 const SILERO_VAD_URL =
   'https://raw.githubusercontent.com/snakers4/silero-vad/v4.0/files/silero_vad.onnx';
+
+// Pinned to a specific gyan.dev release version (immutable filename — not the rolling
+// "release-essentials"/"latest" alias) per cdd/plan/amendments.md A6: ffmpeg becomes a
+// provisioned artifact, never resolved from PATH. The "essentials" build's zip packaging
+// contains ffmpeg.exe, ffprobe.exe, and ffplay.exe (verified by inspecting the archive) — ffplay
+// is required by the later TTS task for raw-PCM playback.
+const FFMPEG_VERSION = '8.0.1';
+const FFMPEG_ZIP_URL = `https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-${FFMPEG_VERSION}-essentials_build.zip`;
 
 // Pinned HF commit SHAs so `/resolve/<rev>/...` URLs never move out from under a recorded hash.
 const WHISPER_CPP_HF_REV = '5359861c739e955e79d9a303bcbc70fb988958b1';
@@ -171,6 +180,22 @@ export const REQUIRED_MODELS: ModelSpec[] = [
     sha256: 'a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28',
     dest: 'vad/silero_vad.onnx',
     group: 'core'
+  },
+  {
+    name: 'ffmpeg-exe',
+    url: FFMPEG_ZIP_URL,
+    sha256: '5af82a0d4fe2b9eae211b967332ea97edfc51c6b328ca35b827e73eac560dc0d',
+    dest: 'bin/ffmpeg/ffmpeg.exe',
+    group: 'core',
+    archive: {
+      zipEntry: `ffmpeg-${FFMPEG_VERSION}-essentials_build/bin/ffmpeg.exe`,
+      companions: [
+        {
+          zipEntry: `ffmpeg-${FFMPEG_VERSION}-essentials_build/bin/ffplay.exe`,
+          dest: 'bin/ffmpeg/ffplay.exe'
+        }
+      ]
+    }
   },
   {
     name: 'bge-small-en-v1.5-onnx',

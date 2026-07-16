@@ -26,7 +26,7 @@ describe('resolveModelPaths', () => {
     expect('missing' in result).toBe(true);
     if ('missing' in result) {
       expect(result.missing.sort()).toEqual(
-        ['piperExe', 'piperVoice', 'sileroVad', 'whisperCli', 'whisperModel'].sort()
+        ['ffmpegExe', 'ffplayExe', 'piperExe', 'piperVoice', 'sileroVad', 'whisperCli', 'whisperModel'].sort()
       );
     }
   });
@@ -38,6 +38,8 @@ describe('resolveModelPaths', () => {
     touch('piper', 'en_US-lessac-medium.onnx');
     touch('piper', 'en_US-lessac-medium.onnx.json');
     touch('vad', 'silero_vad.onnx');
+    touch('bin', 'ffmpeg', 'ffmpeg.exe');
+    touch('bin', 'ffmpeg', 'ffplay.exe');
 
     const result = resolveModelPaths({ modelsRoot: dir, brainEnabled: false });
     expect('missing' in result).toBe(false);
@@ -47,6 +49,8 @@ describe('resolveModelPaths', () => {
       expect(result.piperExe).toBe(join(dir, 'bin', 'piper', 'piper.exe'));
       expect(result.piperVoice).toBe(join(dir, 'piper', 'en_US-lessac-medium.onnx'));
       expect(result.sileroVad).toBe(join(dir, 'vad', 'silero_vad.onnx'));
+      expect(result.ffmpegExe).toBe(join(dir, 'bin', 'ffmpeg', 'ffmpeg.exe'));
+      expect(result.ffplayExe).toBe(join(dir, 'bin', 'ffmpeg', 'ffplay.exe'));
       expect(result.embedModel).toBeUndefined();
       expect(result.embedTokenizer).toBeUndefined();
     }
@@ -59,6 +63,8 @@ describe('resolveModelPaths', () => {
     touch('piper', 'en_US-lessac-medium.onnx');
     touch('piper', 'en_US-lessac-medium.onnx.json');
     touch('vad', 'silero_vad.onnx');
+    touch('bin', 'ffmpeg', 'ffmpeg.exe');
+    touch('bin', 'ffmpeg', 'ffplay.exe');
 
     const withoutEmbed = resolveModelPaths({ modelsRoot: dir, brainEnabled: true });
     expect('missing' in withoutEmbed).toBe(true);
@@ -84,11 +90,30 @@ describe('resolveModelPaths', () => {
     touch('piper', 'en_US-lessac-medium.onnx');
     // .onnx.json intentionally omitted
     touch('vad', 'silero_vad.onnx');
+    touch('bin', 'ffmpeg', 'ffmpeg.exe');
+    touch('bin', 'ffmpeg', 'ffplay.exe');
 
     const result = resolveModelPaths({ modelsRoot: dir });
     expect('missing' in result).toBe(true);
     if ('missing' in result) {
       expect(result.missing).toEqual(['piperVoice']);
+    }
+  });
+
+  it('reports ffmpegExe and ffplayExe individually when only one of the pair is missing', () => {
+    touch('bin', 'whisper-cli.exe');
+    touch('whisper', 'ggml-small.en.bin');
+    touch('bin', 'piper', 'piper.exe');
+    touch('piper', 'en_US-lessac-medium.onnx');
+    touch('piper', 'en_US-lessac-medium.onnx.json');
+    touch('vad', 'silero_vad.onnx');
+    touch('bin', 'ffmpeg', 'ffmpeg.exe');
+    // ffplay.exe intentionally omitted
+
+    const result = resolveModelPaths({ modelsRoot: dir });
+    expect('missing' in result).toBe(true);
+    if ('missing' in result) {
+      expect(result.missing).toEqual(['ffplayExe']);
     }
   });
 });
