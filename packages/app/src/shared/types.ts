@@ -49,3 +49,14 @@ export interface TurnRecord {
 }
 
 export interface SessionSummary { id: string; title: string; updatedAt: string; backend: BackendId }
+
+/**
+ * Additive push channel (main → renderer): instantaneous microphone input level, 0..1,
+ * emitted while listening. Drives the overlay listening-indicator bars. Declared here —
+ * not in src/main/ipc.ts's PushChannels — because the renderer build cannot import
+ * main-process modules; main's PushChannels should absorb this entry when the voice
+ * pipeline wires the emitter (harmless if never emitted).
+ */
+export interface MicLevelPush {
+  'mic:level': (level: number) => void;
+}
