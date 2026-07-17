@@ -100,6 +100,42 @@ describe('resolveModelPaths', () => {
     }
   });
 
+  it('populates whisperServer when whisper-server.exe is present (and it never gates voice)', () => {
+    touch('bin', 'whisper-cli.exe');
+    touch('bin', 'whisper-server.exe');
+    touch('whisper', 'ggml-small.en.bin');
+    touch('bin', 'piper', 'piper.exe');
+    touch('piper', 'en_US-lessac-medium.onnx');
+    touch('piper', 'en_US-lessac-medium.onnx.json');
+    touch('vad', 'silero_vad.onnx');
+    touch('bin', 'ffmpeg', 'ffmpeg.exe');
+    touch('bin', 'ffmpeg', 'ffplay.exe');
+
+    const result = resolveModelPaths({ modelsRoot: dir });
+    expect('missing' in result).toBe(false);
+    if (!('missing' in result)) {
+      expect(result.whisperServer).toBe(join(dir, 'bin', 'whisper-server.exe'));
+    }
+  });
+
+  it('omits whisperServer (without adding it to missing) when whisper-server.exe is absent', () => {
+    touch('bin', 'whisper-cli.exe');
+    // whisper-server.exe intentionally omitted — the pipeline falls back to whisper-cli.
+    touch('whisper', 'ggml-small.en.bin');
+    touch('bin', 'piper', 'piper.exe');
+    touch('piper', 'en_US-lessac-medium.onnx');
+    touch('piper', 'en_US-lessac-medium.onnx.json');
+    touch('vad', 'silero_vad.onnx');
+    touch('bin', 'ffmpeg', 'ffmpeg.exe');
+    touch('bin', 'ffmpeg', 'ffplay.exe');
+
+    const result = resolveModelPaths({ modelsRoot: dir });
+    expect('missing' in result).toBe(false);
+    if (!('missing' in result)) {
+      expect(result.whisperServer).toBeUndefined();
+    }
+  });
+
   it('reports ffmpegExe and ffplayExe individually when only one of the pair is missing', () => {
     touch('bin', 'whisper-cli.exe');
     touch('whisper', 'ggml-small.en.bin');

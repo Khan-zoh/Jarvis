@@ -51,12 +51,25 @@ export interface TurnRecord {
 export interface SessionSummary { id: string; title: string; updatedAt: string; backend: BackendId }
 
 /**
- * Additive push channel (main → renderer): instantaneous microphone input level, 0..1,
- * emitted while listening. Drives the overlay listening-indicator bars. Declared here —
- * not in src/main/ipc.ts's PushChannels — because the renderer build cannot import
- * main-process modules; main's PushChannels should absorb this entry when the voice
- * pipeline wires the emitter (harmless if never emitted).
+ * Push channel (main → renderer): instantaneous microphone input level, 0..1, emitted while
+ * listening. Drives the overlay listening-indicator bars. ABSORBED into src/main/ipc.ts's
+ * PushChannels by the voice-pipeline task (which wires the emitter); this declaration remains
+ * for the renderer build, which cannot import main-process modules.
  */
 export interface MicLevelPush {
   'mic:level': (level: number) => void;
+}
+
+/**
+ * Result of the `voice:status` invoke channel: whether the voice pipeline is actually running,
+ * and — when it is not — a human-readable reason (missing models/binaries or an unconfigured
+ * Picovoice access key/keyword). Missing prerequisites are NOT a transient error; they put the
+ * app in text-only mode until the user fixes the named cause (cdd/plan/amendments.md A6, error
+ * policy nuance).
+ */
+export interface VoiceStatus {
+  /** True when the wake-word + voice pipeline is live; false in text-only mode. */
+  enabled: boolean;
+  /** Why voice is off (for the settings/setup UI), or null when enabled. */
+  reason: string | null;
 }

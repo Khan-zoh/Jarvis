@@ -7,7 +7,8 @@ import type {
   BackendId,
   SessionSummary,
   TranscriptEvent,
-  TurnRecord
+  TurnRecord,
+  VoiceStatus
 } from '../shared/types';
 
 type Unsubscribe = () => void;
@@ -28,12 +29,15 @@ export interface JarvisApi {
   connectGoogle(): Promise<{ email: string }>;
   disconnectGoogle(): Promise<void>;
   listAudioInputs(): Promise<{ id: string; label: string }[]>;
+  voiceStatus(): Promise<VoiceStatus>;
   quit(): Promise<void>;
   onStateChanged(fn: (s: AssistantState) => void): Unsubscribe;
   onTranscript(fn: (e: TranscriptEvent) => void): Unsubscribe;
   onAgentEvent(fn: (e: AgentEvent) => void): Unsubscribe;
   onSessionUpdated(fn: (turn: TurnRecord) => void): Unsubscribe;
   onConfigChanged(fn: (c: AppConfig) => void): Unsubscribe;
+  /** Mic input level 0..1 per frame while listening (overlay listening bars). */
+  onMicLevel(fn: (level: number) => void): Unsubscribe;
 }
 
 /**
@@ -61,12 +65,14 @@ export function buildPreloadApi(ipc: IpcRenderer): JarvisApi {
     connectGoogle: () => ipc.invoke(INVOKE.googleConnect),
     disconnectGoogle: () => ipc.invoke(INVOKE.googleDisconnect),
     listAudioInputs: () => ipc.invoke(INVOKE.audioListInputs),
+    voiceStatus: () => ipc.invoke(INVOKE.voiceStatus),
     quit: () => ipc.invoke(INVOKE.appQuit),
     onStateChanged: (fn) => subscribe(PUSH.stateChanged, fn),
     onTranscript: (fn) => subscribe(PUSH.transcript, fn),
     onAgentEvent: (fn) => subscribe(PUSH.agentEvent, fn),
     onSessionUpdated: (fn) => subscribe(PUSH.sessionUpdated, fn),
-    onConfigChanged: (fn) => subscribe(PUSH.configChanged, fn)
+    onConfigChanged: (fn) => subscribe(PUSH.configChanged, fn),
+    onMicLevel: (fn) => subscribe(PUSH.micLevel, fn)
   };
 }
 

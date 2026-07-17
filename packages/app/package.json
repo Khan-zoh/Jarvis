@@ -17,5 +17,9 @@
     "typescript": "^6.0.3",
     "vite": "^7.0.2",
     "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@picovoice/porcupine-node": "^4.0.2",
+    "onnxruntime-node": "^1.27.0"
   }
 }
