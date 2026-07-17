@@ -143,6 +143,24 @@ export const REQUIRED_MODELS: ModelSpec[] = [
     }
   },
   {
+    // whisper-server.exe ships in the SAME whisper.cpp release zip as whisper-cli.exe (both under
+    // Release/). It is a SEPARATE spec (not a companion of whisper-cli) on purpose: processSpec
+    // skips a spec entirely when its primary `dest` already exists, and companions are only
+    // extracted as a side effect of downloading the primary — so a machine that already has
+    // whisper-cli.exe would never get whisper-server.exe from a companion entry. Keyed on its own
+    // `dest`, a plain `npm run fetch-models` extracts just this file, and re-runs are a no-op.
+    // Reuses the ggml*.dll set already extracted alongside whisper-cli.exe in bin/.
+    // sha256: computed from Release/whisper-server.exe in whisper-bin-x64.zip v1.9.1.
+    name: 'whisper-server',
+    url: WHISPER_CPP_ZIP_URL,
+    sha256: '2c1ef08694756eda280e79b8217da63ee2af33c87ac3d5f27d68f9f3f966fd32',
+    dest: 'bin/whisper-server.exe',
+    group: 'core',
+    archive: {
+      zipEntry: 'Release/whisper-server.exe'
+    }
+  },
+  {
     name: 'whisper-model-small.en',
     url: WHISPER_MODEL_URL,
     sha256: 'c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d',

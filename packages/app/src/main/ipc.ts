@@ -6,7 +6,8 @@ import type {
   BackendId,
   SessionSummary,
   TranscriptEvent,
-  TurnRecord
+  TurnRecord,
+  VoiceStatus
 } from '../shared/types';
 import type { ConfigStore } from './config';
 
@@ -19,6 +20,9 @@ export interface PushChannels {
   'agent:event': (e: AgentEvent) => void;
   'session:updated': (turn: TurnRecord) => void;
   'config:changed': (c: AppConfig) => void;
+  /** Instantaneous mic input level 0..1, emitted per frame while listening (absorbed from
+   * shared/types.ts's MicLevelPush). Drives the overlay listening bars. */
+  'mic:level': (level: number) => void;
 }
 
 /**
@@ -39,6 +43,8 @@ export interface InvokeChannels {
   'google:connect': () => Promise<{ email: string }>;
   'google:disconnect': () => Promise<void>;
   'audio:listInputs': () => Promise<{ id: string; label: string }[]>;
+  /** Whether the voice pipeline is live, and (when it is not) the text-only-mode reason. */
+  'voice:status': () => Promise<VoiceStatus>;
   'app:quit': () => Promise<void>;
 }
 
@@ -48,7 +54,8 @@ export const PUSH = {
   transcript: 'transcript',
   agentEvent: 'agent:event',
   sessionUpdated: 'session:updated',
-  configChanged: 'config:changed'
+  configChanged: 'config:changed',
+  micLevel: 'mic:level'
 } as const satisfies Record<string, keyof PushChannels>;
 
 /** Canonical invoke (renderer → main) channel names. The single source of truth. */
@@ -64,6 +71,7 @@ export const INVOKE = {
   googleConnect: 'google:connect',
   googleDisconnect: 'google:disconnect',
   audioListInputs: 'audio:listInputs',
+  voiceStatus: 'voice:status',
   appQuit: 'app:quit'
 } as const satisfies Record<string, keyof InvokeChannels>;
 
@@ -82,6 +90,7 @@ export interface IpcDeps {
   connectGoogle(): Promise<{ email: string }>;
   disconnectGoogle(): Promise<void>;
   listAudioInputs(): Promise<{ id: string; label: string }[]>;
+  voiceStatus(): Promise<VoiceStatus>;
   quit(): Promise<void>;
 }
 
@@ -107,5 +116,6 @@ export function registerInvokeHandlers(deps: IpcDeps): void {
   ipcMain.handle(INVOKE.googleConnect, async () => deps.connectGoogle());
   ipcMain.handle(INVOKE.googleDisconnect, async () => deps.disconnectGoogle());
   ipcMain.handle(INVOKE.audioListInputs, async () => deps.listAudioInputs());
+  ipcMain.handle(INVOKE.voiceStatus, async () => deps.voiceStatus());
   ipcMain.handle(INVOKE.appQuit, async () => deps.quit());
 }

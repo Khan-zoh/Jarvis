@@ -8,6 +8,10 @@ import { join, resolve } from 'node:path';
 
 export interface ModelPaths {
   whisperCli: string;
+  /** Persistent whisper-server.exe (cdd/plan/amendments.md A6). Optional/best-effort: populated
+   * only when the file is present. Its absence does NOT gate voice — the pipeline falls back to
+   * the per-spawn whisperCli — so it is deliberately kept OUT of the required `missing` list. */
+  whisperServer?: string;
   whisperModel: string;
   piperExe: string;
   piperVoice: string;
@@ -53,6 +57,7 @@ export function resolveModelPaths(
   const brainEnabled = opts.brainEnabled ?? false;
 
   const whisperCli = join(modelsRoot, 'bin', 'whisper-cli.exe');
+  const whisperServer = join(modelsRoot, 'bin', 'whisper-server.exe');
   const whisperModel = join(modelsRoot, 'whisper', 'ggml-small.en.bin');
   const piperExe = join(modelsRoot, 'bin', 'piper', 'piper.exe');
   const piperVoice = join(modelsRoot, 'piper', 'en_US-lessac-medium.onnx');
@@ -89,6 +94,9 @@ export function resolveModelPaths(
     ffmpegExe,
     ffplayExe
   };
+  // Best-effort: expose the resident-server path only when it is actually on disk. Callers use its
+  // presence to decide WhisperServerStt vs. the WhisperCppStt fallback.
+  if (existsSync(whisperServer)) result.whisperServer = whisperServer;
   if (brainEnabled) {
     result.embedModel = embedModel;
     result.embedTokenizer = embedTokenizer;
