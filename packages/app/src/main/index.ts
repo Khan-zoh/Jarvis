@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { app } from 'electron';
+import { app, shell } from 'electron';
+import { createGoogleAuthManager } from '../../../tools-mcp/src/google/auth';
 import { ConfigStore } from './config';
 import { WindowManager } from './windows';
 import { registerInvokeHandlers, type IpcDeps } from './ipc';
@@ -100,11 +101,34 @@ if (!gotLock) {
       listSessions: async () => [],
       loadSession: async () => [],
       newSession: async () => {},
-      // TODO(google task): run the OAuth flow.
+      // Google OAuth (installed-app loopback). The flow runs in the app because it must open a
+      // browser; the disposable MCP worker only ever reads the persisted token file. dataDir is
+      // userData, matching what the tools-mcp launcher passes as JARVIS_DATA_DIR.
       connectGoogle: async () => {
-        throw new Error('Google connect is not implemented yet.');
+        const { clientId, clientSecret } = config.get().google;
+        if (!clientId || !clientSecret) {
+          throw new Error(
+            'Add your Google client ID and secret in Settings before connecting.'
+          );
+        }
+        const manager = createGoogleAuthManager({
+          dataDir: app.getPath('userData'),
+          openBrowser: (url) => {
+            void shell.openExternal(url);
+          }
+        });
+        const { email } = await manager.beginAuthFlow(clientId, clientSecret);
+        config.set({ google: { ...config.get().google, connectedEmail: email } });
+        return { email };
       },
-      disconnectGoogle: async () => {},
+      disconnectGoogle: async () => {
+        const manager = createGoogleAuthManager({
+          dataDir: app.getPath('userData'),
+          openBrowser: () => {}
+        });
+        await manager.disconnect();
+        config.set({ google: { ...config.get().google, connectedEmail: null } });
+      },
       listAudioInputs: async () => {
         if (voiceRuntime) return voiceRuntime.capture.listInputs();
         // Text-only mode: still enumerate devices when ffmpeg is provisioned, so the settings UI
