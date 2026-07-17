@@ -4,6 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./google/auth": "./dist/google/auth.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",

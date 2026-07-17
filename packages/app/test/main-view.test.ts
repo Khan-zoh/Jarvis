@@ -142,6 +142,103 @@ describe('MainView command bar', () => {
   });
 });
 
+describe('MainView live events (wire-and-converse)', () => {
+  let api: FakeApi;
+  let root: HTMLElement;
+
+  const makeView = async (): Promise<MainView> => {
+    document.body.innerHTML = '<div id="app"></div>';
+    root = document.getElementById('app') as HTMLElement;
+    const view = new MainView(root, api);
+    await flush();
+    return view;
+  };
+  const input = (): HTMLInputElement => root.querySelector('.command-input') as HTMLInputElement;
+  const submit = (): void => {
+    (root.querySelector('.command-bar') as HTMLFormElement).dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true })
+    );
+  };
+
+  beforeEach(() => {
+    api = createFakeApi();
+  });
+
+  it('shows the durable setup notice when voice is disabled, hides it when enabled', async () => {
+    api.voice = { enabled: false, reason: 'Voice models are missing — run `npm run fetch-models`.' };
+    await makeView();
+    const notice = root.querySelector('.setup-notice') as HTMLElement;
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toContain('fetch-models');
+
+    // Voice comes up (e.g. models fetched + config fixed): a config change re-queries status.
+    api.voice = { enabled: true, reason: null };
+    api.pushConfig(api.config);
+    await flush();
+    expect(notice.hidden).toBe(true);
+  });
+
+  it('accumulates text_delta into a live turn and replaces it with the persisted record', async () => {
+    await makeView();
+    input().value = 'what time is it';
+    submit();
+
+    const live = root.querySelector('article.turn-live') as HTMLElement;
+    expect(live).not.toBeNull();
+    expect(live.querySelector('.turn-user')?.textContent).toBe('you — what time is it');
+
+    api.pushAgentEvent({ kind: 'text_delta', text: 'It is ' });
+    api.pushAgentEvent({ kind: 'text_delta', text: 'noon.' });
+    expect(live.querySelector('.turn-assistant')?.textContent).toBe('It is noon.');
+
+    // Tool activity is visible as live footnote lines (A5 confirmation-visibility).
+    api.pushAgentEvent({ kind: 'tool_start', toolName: 'gmail_send', summary: 'sending an email' });
+    expect(live.querySelector('.turn-tool')?.textContent).toBe('→ sending an email…');
+    api.pushAgentEvent({ kind: 'tool_end', toolName: 'gmail_send', ok: true });
+    expect(live.querySelector('.turn-tool')?.textContent).toBe('✓ gmail_send');
+
+    // The persisted TurnRecord replaces the live rendition — exactly one turn remains.
+    api.pushTurn({
+      id: 'p1',
+      at: new Date().toISOString(),
+      backend: 'claude',
+      userText: 'what time is it',
+      assistantText: 'It is noon.',
+      tools: [{ toolName: 'gmail_send', ok: true }]
+    });
+    expect(root.querySelector('article.turn-live')).toBeNull();
+    expect(root.querySelectorAll('article.turn')).toHaveLength(1);
+    expect(root.querySelector('.turn-assistant')?.textContent).toBe('It is noon.');
+  });
+
+  it('a voice turn goes live from the final transcript push', async () => {
+    await makeView();
+    api.pushTranscript({ text: 'partial words', final: false });
+    expect(root.querySelector('article.turn-live')).toBeNull();
+    api.pushTranscript({ text: 'whole utterance', final: true });
+    const live = root.querySelector('article.turn-live') as HTMLElement;
+    expect(live.querySelector('.turn-user')?.textContent).toBe('you — whole utterance');
+  });
+
+  it('an error event lands in the live turn', async () => {
+    await makeView();
+    input().value = 'break please';
+    submit();
+    api.pushAgentEvent({ kind: 'error', message: 'the codex backend is not available' });
+    const live = root.querySelector('article.turn-live') as HTMLElement;
+    expect(live.classList.contains('turn-error')).toBe(true);
+    expect(live.querySelector('.turn-assistant')?.textContent).toBe(
+      'the codex backend is not available'
+    );
+  });
+
+  it('minimize glyph invokes window:minimize', async () => {
+    await makeView();
+    (root.querySelector('.btn-min') as HTMLButtonElement).click();
+    expect(api.calls.minimize).toBe(1);
+  });
+});
+
 describe('relativeTime', () => {
   it('is lowercase and terse', () => {
     const now = new Date('2026-07-15T12:00:00Z');

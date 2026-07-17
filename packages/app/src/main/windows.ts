@@ -55,12 +55,20 @@ export interface TrayActions {
 const TRAY_ICON_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAO0lEQVR4nGPQrf3GQAnGJfEfBybKAFyasRpCqmYMQ8jRjGIIuZrhhowaQEUDKI5GqiQkqiRlqmQmkjAACRI7g//M0UQAAAAASUVORK5CYII=';
 
-function loadRenderer(win: BrowserWindow, hash = ''): void {
+/**
+ * Loads the single renderer entry into a window. The renderer routes on the `view` QUERY
+ * parameter (`index.html?view=overlay` — see src/renderer/index.ts, which reads
+ * `window.location.search`), so the overlay must be loaded with a query string, not a hash.
+ */
+function loadRenderer(win: BrowserWindow, view?: 'overlay'): void {
   const devUrl = process.env['ELECTRON_RENDERER_URL'];
   if (devUrl) {
-    void win.loadURL(hash ? `${devUrl}#${hash}` : devUrl);
+    void win.loadURL(view ? `${devUrl}?view=${view}` : devUrl);
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'), hash ? { hash } : undefined);
+    void win.loadFile(
+      join(__dirname, '../renderer/index.html'),
+      view ? { query: { view } } : undefined
+    );
   }
 }
 
@@ -200,6 +208,13 @@ export class WindowManager {
     });
     loadRenderer(win);
     this.mainWindow = win;
+  }
+
+  /** Minimizes the main window (titlebar minimize glyph via the `window:minimize` invoke). */
+  minimizeMain(): void {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.minimize();
+    }
   }
 
   /** Toggles the main window's visibility. Used by the global hotkey by default. */

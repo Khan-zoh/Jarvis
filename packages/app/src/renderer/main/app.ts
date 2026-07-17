@@ -1,4 +1,10 @@
-import type { AppConfig, BackendId, SessionSummary, TurnRecord } from '../../shared/types';
+import type {
+  AgentEvent,
+  AppConfig,
+  BackendId,
+  SessionSummary,
+  TurnRecord
+} from '../../shared/types';
 import type { JarvisApi, Unsubscribe } from '../shared/api';
 import { buildSettingsPane, type SettingsPane } from './settings';
 
@@ -61,14 +67,28 @@ export class MainView {
   private settingsShown = false;
   private settingsPane: SettingsPane;
 
+  /** In-flight turn rendered live during streaming; replaced by the persisted TurnRecord on
+   * session:updated. */
+  private liveTurn: {
+    el: HTMLElement;
+    assistant: HTMLParagraphElement;
+    text: string;
+    lastTool: HTMLParagraphElement | null;
+  } | null = null;
+
   private readonly agentName: HTMLSpanElement;
   private readonly settingsBtn: HTMLButtonElement;
+  private readonly setupNotice: HTMLParagraphElement;
   private readonly sessionList: HTMLUListElement;
   private readonly transcript: HTMLDivElement;
   private readonly input: HTMLInputElement;
   private readonly backendClaude: HTMLSpanElement;
   private readonly backendCodex: HTMLSpanElement;
   private readonly unsubs: Unsubscribe[] = [];
+  private readonly onKeydown = (e: KeyboardEvent): void => {
+    // Esc cancels the in-flight turn (pipeline:cancel → router.interrupt + pipeline.cancel).
+    if (e.key === 'Escape') void this.api.cancel();
+  };
 
   constructor(
     root: HTMLElement,
@@ -98,6 +118,9 @@ export class MainView {
     minBtn.className = 'btn-min';
     minBtn.textContent = '–';
     minBtn.title = 'minimize';
+    minBtn.addEventListener('click', () => {
+      void api.minimize();
+    });
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.className = 'btn-close';
@@ -117,6 +140,12 @@ export class MainView {
     sessions.className = 'sessions';
     this.sessionList = document.createElement('ul');
     sessions.appendChild(this.sessionList);
+
+    // Durable setup notice (voice disabled → text-only mode). NOT the 3s transient error path:
+    // it stays until the underlying cause is fixed (cdd/plan/amendments.md, error-policy nuance).
+    this.setupNotice = document.createElement('p');
+    this.setupNotice.className = 'setup-notice';
+    this.setupNotice.hidden = true;
 
     this.transcript = document.createElement('div');
     this.transcript.className = 'transcript';
@@ -149,7 +178,7 @@ export class MainView {
       this.submit();
     });
 
-    history.append(sessions, this.transcript, bar);
+    history.append(sessions, this.setupNotice, this.transcript, bar);
 
     /* ---- settings pane ---- */
     this.settingsPane = buildSettingsPane(api);
@@ -169,17 +198,29 @@ export class MainView {
       this.setBackend(c.agents.defaultBackend);
     });
     void this.refreshSessions(true);
+    this.refreshVoiceStatus();
 
     this.unsubs.push(
       api.onSessionUpdated((turn) => {
+        // The persisted record replaces the live streaming rendition of the same turn.
+        this.clearLiveTurn();
         this.transcript.appendChild(renderTranscript([turn]));
         this.transcript.scrollTop = this.transcript.scrollHeight;
         void this.refreshSessions(false);
       }),
       api.onConfigChanged((c) => {
         this.applyConfig(c);
+        this.refreshVoiceStatus();
+      }),
+      // Voice path: the final transcript announces a new in-flight turn.
+      api.onTranscript((e) => {
+        if (e.final && e.text !== '') this.beginLiveTurn(e.text);
+      }),
+      api.onAgentEvent((e) => {
+        this.onAgentEvent(e);
       })
     );
+    document.addEventListener('keydown', this.onKeydown);
   }
 
   showSettings(show: boolean): void {
@@ -203,8 +244,85 @@ export class MainView {
   private submit(): void {
     const text = this.input.value.trim();
     if (text === '') return;
+    this.beginLiveTurn(text);
     void this.api.sendText(text, this.backend);
     this.input.value = '';
+  }
+
+  /* ---- live streaming turn ---- */
+
+  /** Starts the live rendition of an in-flight turn (text bar submit or final voice transcript). */
+  private beginLiveTurn(userText: string): void {
+    this.clearLiveTurn();
+    const el = document.createElement('article');
+    el.className = 'turn turn-live';
+    const user = document.createElement('p');
+    user.className = 'turn-user';
+    const prefix = document.createElement('span');
+    prefix.className = 'turn-prefix';
+    prefix.textContent = 'you — ';
+    user.append(prefix, document.createTextNode(userText));
+    const assistant = document.createElement('p');
+    assistant.className = 'turn-assistant';
+    el.append(user, assistant);
+    this.transcript.appendChild(el);
+    this.transcript.scrollTop = this.transcript.scrollHeight;
+    this.liveTurn = { el, assistant, text: '', lastTool: null };
+  }
+
+  private clearLiveTurn(): void {
+    this.liveTurn?.el.remove();
+    this.liveTurn = null;
+  }
+
+  /** Accumulates text_delta into the live turn; shows tool activity as footnote lines
+   * (A5 confirmation-visibility: every tool call is visible in the main window too). */
+  private onAgentEvent(e: AgentEvent): void {
+    const live = this.liveTurn;
+    if (!live) return;
+    switch (e.kind) {
+      case 'text_delta':
+        live.text += e.text;
+        live.assistant.textContent = live.text;
+        break;
+      case 'done':
+        live.text = e.finalText;
+        live.assistant.textContent = e.finalText;
+        break;
+      case 'error':
+        live.assistant.textContent = e.message;
+        live.el.classList.add('turn-error');
+        break;
+      case 'tool_start': {
+        const line = document.createElement('p');
+        line.className = 'turn-tool';
+        line.textContent = `→ ${e.summary}…`;
+        live.el.appendChild(line);
+        live.lastTool = line;
+        break;
+      }
+      case 'tool_end':
+        if (live.lastTool) {
+          live.lastTool.textContent = `${e.ok ? '✓' : '✕'} ${e.toolName}`;
+          live.lastTool = null;
+        }
+        break;
+    }
+    this.transcript.scrollTop = this.transcript.scrollHeight;
+  }
+
+  /** Queries voice:status and shows/hides the durable setup notice. */
+  private refreshVoiceStatus(): void {
+    void this.api
+      .voiceStatus()
+      .then((s) => {
+        const show = !s.enabled && s.reason !== null && s.reason !== '';
+        this.setupNotice.textContent = show ? (s.reason as string) : '';
+        this.setupNotice.hidden = !show;
+      })
+      .catch(() => {
+        /* status probe failing must never break the view */
+      });
   }
 
   private async refreshSessions(loadFirst: boolean): Promise<void> {
@@ -250,6 +368,7 @@ export class MainView {
   }
 
   dispose(): void {
+    document.removeEventListener('keydown', this.onKeydown);
     this.unsubs.forEach((u) => u());
   }
 }
