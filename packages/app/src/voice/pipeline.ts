@@ -36,6 +36,13 @@ export interface VoicePipelineEvents {
   utterance: (text: string) => void;
   /** Instantaneous mic input level 0..1 (RMS), emitted per frame while listening. */
   micLevel: (level: number) => void;
+  /**
+   * A pipeline-internal failure (capture crash, wake/VAD/STT error). Emitted alongside the
+   * `error` state transition so the main process can broadcast it as
+   * `agent:event {kind:'error'}` per the error policy (cdd/plan/architecture.md). NOT emitted
+   * for agent errors arriving via onAgentEvent — those are already broadcast on their own path.
+   */
+  error: (message: string) => void;
 }
 
 /** Timer seam so the 3s error auto-recover and the listen timeout are drivable with fake timers.
@@ -82,7 +89,13 @@ export class VoicePipeline {
 
   private readonly listeners: {
     [K in keyof VoicePipelineEvents]: Set<VoicePipelineEvents[K]>;
-  } = { state: new Set(), transcript: new Set(), utterance: new Set(), micLevel: new Set() };
+  } = {
+    state: new Set(),
+    transcript: new Set(),
+    utterance: new Set(),
+    micLevel: new Set(),
+    error: new Set()
+  };
 
   private _state: AssistantState = 'idle';
   private started = false;
@@ -206,13 +219,24 @@ export class VoicePipeline {
         return;
       }
       case 'error': {
-        this.toError(e.message);
+        // The agent error is already broadcast by the main process (router onEvent fanout), so
+        // suppress the pipeline's own `error` event to avoid a duplicate.
+        this.toError(e.message, { fromAgent: true });
         return;
       }
-      case 'tool_start':
+      case 'tool_start': {
+        // A5 pragmatic confirmation-visibility (cdd/plan/amendments.md §A5,
+        // docs/confirmation-design.md): tool activity — including outward/destructive calls like
+        // gmail_send — is spoken as it happens on voice turns, and shown in the overlay ticker.
+        // Visibility, not blocking; the blocking confirmation UX is deferred.
+        if (this.ttsEnabled()) this.speakSentence(`${e.summary}.`);
+        return;
+      }
       case 'tool_end':
-        // Tool progress is broadcast to the overlay by the main process; the voice machine does
-        // not speak it.
+        // Success is visible in the ticker and implied by the reply; only a failure is spoken.
+        if (!e.ok && this.ttsEnabled()) {
+          this.speakSentence(`${e.toolName.replace(/_/g, ' ')} didn't work.`);
+        }
         return;
       default:
         return;
@@ -415,7 +439,7 @@ export class VoicePipeline {
     this.setState('idle');
   }
 
-  private toError(message: string): void {
+  private toError(message: string, opts: { fromAgent?: boolean } = {}): void {
     this.turn += 1;
     this.deps.tts.cancel();
     this.chunker = null;
@@ -424,10 +448,12 @@ export class VoicePipeline {
     this.clearListenTimer();
     this.clearErrorTimer();
     this.setState('error');
-    // Surface the message to any state listeners via a transcript-less path — the main process
-    // maps the error state to an agent:event {error} broadcast; here we just log for smoke runs.
     // eslint-disable-next-line no-console
     console.error(`[voice-pipeline] ${message}`);
+    // Pipeline-internal failures surface as an `error` event so the main process can broadcast
+    // them per the error policy. Agent errors already reached the renderers via the router's
+    // onEvent fanout, so they are not re-emitted here.
+    if (!opts.fromAgent) this.emit('error', message);
     this.errorTimer = this.timers.setTimeout(() => {
       if (this._state === 'error') this.setState('idle');
     }, ERROR_RECOVER_MS);

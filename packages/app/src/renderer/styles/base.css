@@ -476,3 +476,25 @@ button {
 .text-btn:disabled {
   color: var(--grey-2);
 }
+
+/* wire-and-converse: durable setup notice (text-only mode) + live streaming turn */
+
+.setup-notice {
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--grey-2);
+  border-bottom: 1px solid var(--hairline, var(--grey-3));
+  margin: 0;
+  padding: 8px 24px;
+}
+
+.turn-live .turn-assistant:empty::after {
+  content: '…';
+  color: var(--grey-2);
+}
+
+.turn-error .turn-assistant {
+  color: var(--grey-2);
+  font-style: italic;
+}

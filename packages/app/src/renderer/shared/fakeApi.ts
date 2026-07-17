@@ -5,7 +5,8 @@ import type {
   BackendId,
   SessionSummary,
   TranscriptEvent,
-  TurnRecord
+  TurnRecord,
+  VoiceStatus
 } from '../../shared/types';
 import type { JarvisApi, Unsubscribe } from './api';
 
@@ -18,10 +19,13 @@ export interface FakeApi extends JarvisApi {
   config: AppConfig;
   sessions: SessionSummary[];
   turnsBySession: Record<string, TurnRecord[]>;
+  /** What voiceStatus() resolves with; set before constructing a view to simulate text-only mode. */
+  voice: VoiceStatus;
   calls: {
     sendText: [text: string, backend: BackendId | undefined][];
     setConfig: Partial<AppConfig>[];
     setSecret: [key: string, value: string][];
+    minimize: number;
   };
   pushState(s: AssistantState): void;
   pushTranscript(e: TranscriptEvent): void;
@@ -78,7 +82,8 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     config,
     sessions: [],
     turnsBySession: {},
-    calls: { sendText: [], setConfig: [], setSecret: [] },
+    voice: { enabled: true, reason: null },
+    calls: { sendText: [], setConfig: [], setSecret: [], minimize: 0 },
 
     getConfig: () => Promise.resolve(api.config),
     setConfig: (patch) => {
@@ -100,6 +105,11 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     connectGoogle: () => Promise.resolve({ email: 'demo@example.com' }),
     disconnectGoogle: () => Promise.resolve(),
     listAudioInputs: () => Promise.resolve([{ id: 'default', label: 'default input' }]),
+    voiceStatus: () => Promise.resolve(api.voice),
+    minimize: () => {
+      api.calls.minimize += 1;
+      return Promise.resolve();
+    },
     quit: () => Promise.resolve(),
 
     onStateChanged: (fn) => on('state:changed', fn as Listener),

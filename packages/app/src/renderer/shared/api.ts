@@ -5,7 +5,8 @@ import type {
   BackendId,
   SessionSummary,
   TranscriptEvent,
-  TurnRecord
+  TurnRecord,
+  VoiceStatus
 } from '../../shared/types';
 
 export type Unsubscribe = () => void;
@@ -31,6 +32,10 @@ export interface JarvisApi {
   connectGoogle(): Promise<{ email: string }>;
   disconnectGoogle(): Promise<void>;
   listAudioInputs(): Promise<{ id: string; label: string }[]>;
+  /** Voice pipeline status: enabled, or the durable text-only-mode reason (setup notice). */
+  voiceStatus(): Promise<VoiceStatus>;
+  /** Minimizes the main window (titlebar minimize glyph → `window:minimize` invoke). */
+  minimize(): Promise<void>;
   quit(): Promise<void>;
   onStateChanged(fn: (s: AssistantState) => void): Unsubscribe;
   onTranscript(fn: (e: TranscriptEvent) => void): Unsubscribe;

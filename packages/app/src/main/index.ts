@@ -1,13 +1,20 @@
 import { spawn } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, shell } from 'electron';
-import { createGoogleAuthManager } from '../../../tools-mcp/src/google/auth';
+import { createGoogleAuthManager } from '@jarvis/tools-mcp/google/auth';
 import { ConfigStore } from './config';
 import { WindowManager } from './windows';
 import { registerInvokeHandlers, type IpcDeps } from './ipc';
 import { setLaunchOnStartup } from './autostart';
 import { resolveModelPaths } from './modelPaths';
+import { toolsMcpEntry } from './paths';
+import { Conductor } from './conductor';
 import type { VoiceStatus } from '../shared/types';
+import { SessionStore } from '../agents/sessions';
+import { AgentRouter } from '../agents/router';
+import { ClaudeBackend } from '../agents/claude';
+import { CodexBackend } from '../agents/codex';
 import { createAudioCapture, type AudioCapture } from '../voice/capture';
 import { createWakeWordDetector } from '../voice/wakeword';
 import { createVoiceActivityDetector } from '../voice/vad';
@@ -54,11 +61,39 @@ if (!gotLock) {
     let voiceDisabledReason: string | null = 'Voice is still starting up.';
     let listeningPaused = false;
 
+    // -----------------------------------------------------------------------------------------
+    // Startup steps 3–4: tools-mcp launch spec → backends → AgentRouter with SessionStore.
+    // Seams are empty arrays for now — the brain-integration task adds providers/observers.
+    // -----------------------------------------------------------------------------------------
+    const userData = app.getPath('userData');
+    const sessions = new SessionStore(join(userData, 'sessions'));
+    const toolsPaths = { entryJs: toolsMcpEntry(), dataDir: userData };
+    // A1 defense-in-depth: the Claude SDK subprocess runs in a non-sensitive empty directory.
+    const agentCwd = join(userData, 'agent-cwd');
+    mkdirSync(agentCwd, { recursive: true });
+    const claude = new ClaudeBackend({ getConfig: () => config.get(), toolsPaths, cwd: agentCwd });
+    const codex = new CodexBackend(config.get(), toolsPaths);
+    const router = new AgentRouter({ claude, codex }, sessions, () => config.get(), {
+      providers: [],
+      observers: []
+    });
+
+    // -----------------------------------------------------------------------------------------
+    // Startup step 6 seam: the Conductor fans agent events to the pipeline (TTS) + IPC, pushes
+    // persisted turns on session:updated, and fans cancel out to router + pipeline. The pipeline
+    // getter resolves lazily because voice comes up later (step 5) or not at all.
+    // -----------------------------------------------------------------------------------------
+    const conductor = new Conductor({
+      router,
+      sessions,
+      pipeline: () => voiceRuntime?.pipeline ?? null,
+      broadcast: (ch, ...args) => wm.broadcast(ch, ...args)
+    });
+
     wm.createTray({
       onOpen: () => wm.showMain(),
       onNewSession: () => {
-        // Wired to SessionStore/AgentRouter in the agent-backends task (startup step 4).
-        void deps.newSession();
+        sessions.newSession();
       },
       onToggleListening: () => {
         // Startup step 5 deliverable: tray pause/resume listening = pipeline stop/start.
@@ -88,19 +123,16 @@ if (!gotLock) {
     // -----------------------------------------------------------------------------------------
     const deps: IpcDeps = {
       config,
-      // Text bar entry: enters the state machine at the transcribing-equivalent point.
-      // (Router lands in wire-and-converse; today the pipeline logs the utterance / echoes it
-      // under --echo.) No-op in text-only mode until the router exists to receive text directly.
-      sendTextCommand: async (text) => {
-        voiceRuntime?.pipeline.injectText(text);
+      // Text bar: same dispatch path as voice, but NEVER through the pipeline — text-bar turns
+      // must not trigger TTS (cdd/tasks/wire-and-converse.md: TTS only for voice-initiated
+      // turns). Events reach renderers via the agent:event broadcast only.
+      sendTextCommand: async (text, backend) => conductor.handleText(text, backend),
+      cancelPipeline: async () => conductor.cancel(),
+      listSessions: async () => sessions.list(),
+      loadSession: async (id) => sessions.turns(id),
+      newSession: async () => {
+        sessions.newSession();
       },
-      cancelPipeline: async () => {
-        voiceRuntime?.pipeline.cancel();
-      },
-      // TODO(agent-backends task): back with SessionStore.
-      listSessions: async () => [],
-      loadSession: async () => [],
-      newSession: async () => {},
       // Google OAuth (installed-app loopback). The flow runs in the app because it must open a
       // browser; the disposable MCP worker only ever reads the persisted token file. dataDir is
       // userData, matching what the tools-mcp launcher passes as JARVIS_DATA_DIR.
@@ -140,6 +172,9 @@ if (!gotLock) {
         voiceRuntime
           ? { enabled: true, reason: null }
           : { enabled: false, reason: voiceDisabledReason },
+      minimizeWindow: async () => {
+        wm.minimizeMain();
+      },
       quit: async () => {
         app.quit();
       }
@@ -162,7 +197,7 @@ if (!gotLock) {
     // Missing prerequisites are NOT a transient error (cdd/plan/amendments.md, error-policy
     // nuance): they are a durable setup state until the user fixes the named cause.
     // -----------------------------------------------------------------------------------------
-    const result = await startVoicePipeline(config, wm);
+    const result = await startVoicePipeline(config, wm, conductor);
     if ('reason' in result) {
       voiceDisabledReason = result.reason;
       console.log(`[main] voice disabled (text-only mode): ${result.reason}`);
@@ -172,10 +207,6 @@ if (!gotLock) {
       wm.setListening(true);
       console.log('[main] voice pipeline started');
     }
-
-    // Startup step 6 (partial, per cdd/tasks/voice-pipeline.md acceptance: "router not wired
-    // yet — pipeline emits `utterance`; log it"): utterances are logged inside
-    // startVoicePipeline; wire-and-converse connects router.dispatch → pipeline.onAgentEvent.
   });
 
   app.on('window-all-closed', () => {
@@ -204,7 +235,8 @@ function modelsRootDir(): string {
  */
 async function startVoicePipeline(
   config: ConfigStore,
-  wm: WindowManager
+  wm: WindowManager,
+  conductor: Conductor
 ): Promise<VoiceRuntime | { reason: string }> {
   const cfg = config.get();
 
@@ -291,8 +323,10 @@ async function startVoicePipeline(
     playWakeSound
   });
 
-  // Dev --echo flag (Gate A): the pipeline speaks the final transcript straight back.
-  if (process.argv.includes('--echo')) {
+  // Dev --echo flag (Gate A): the pipeline speaks the final transcript straight back. Echo mode
+  // replaces the router path entirely (utterances must not also dispatch to a backend).
+  const echoMode = process.argv.includes('--echo');
+  if (echoMode) {
     pipeline.setEchoMode(true);
     console.log('[main] --echo: pipeline will speak transcripts back');
   }
@@ -315,10 +349,17 @@ async function startVoicePipeline(
   });
   pipeline.on('transcript', (e) => wm.broadcast('transcript', e));
   pipeline.on('micLevel', (level) => wm.broadcast('mic:level', level));
-  pipeline.on('utterance', (text) => {
-    // Router not wired yet (Gate A acceptance): log the final utterance.
-    console.log(`[voice] utterance: ${JSON.stringify(text)}`);
-  });
+  // Startup step 6: final utterance → router.dispatch, with every agent event fanned to BOTH
+  // pipeline.onAgentEvent (sentence chunker → TTS) and the agent:event broadcast, and the
+  // persisted turn pushed on session:updated. All owned by the Conductor.
+  if (!echoMode) {
+    pipeline.on('utterance', (text) => {
+      void conductor.handleUtterance(text);
+    });
+  }
+  // Error policy: pipeline-internal failures (capture crash, STT death, …) are broadcast as
+  // agent:event {kind:'error'} — previously they were console-only.
+  pipeline.on('error', (message) => wm.broadcast('agent:event', { kind: 'error', message }));
 
   try {
     await pipeline.start();

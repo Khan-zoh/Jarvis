@@ -30,6 +30,7 @@ export interface JarvisApi {
   disconnectGoogle(): Promise<void>;
   listAudioInputs(): Promise<{ id: string; label: string }[]>;
   voiceStatus(): Promise<VoiceStatus>;
+  minimize(): Promise<void>;
   quit(): Promise<void>;
   onStateChanged(fn: (s: AssistantState) => void): Unsubscribe;
   onTranscript(fn: (e: TranscriptEvent) => void): Unsubscribe;
@@ -66,6 +67,7 @@ export function buildPreloadApi(ipc: IpcRenderer): JarvisApi {
     disconnectGoogle: () => ipc.invoke(INVOKE.googleDisconnect),
     listAudioInputs: () => ipc.invoke(INVOKE.audioListInputs),
     voiceStatus: () => ipc.invoke(INVOKE.voiceStatus),
+    minimize: () => ipc.invoke(INVOKE.windowMinimize),
     quit: () => ipc.invoke(INVOKE.appQuit),
     onStateChanged: (fn) => subscribe(PUSH.stateChanged, fn),
     onTranscript: (fn) => subscribe(PUSH.transcript, fn),

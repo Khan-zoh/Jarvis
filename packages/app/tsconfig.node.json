@@ -2,7 +2,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
-    "noEmit": true
+    "noEmit": true,
+    // Typecheck the workspace import against tools-mcp SOURCE (dist may not exist yet during a
+    // clean-tree typecheck); at runtime Node resolves the same specifier to the built
+    // dist/google/auth.js via the tools-mcp `exports` map (electron-vite externalizes it as a
+    // regular dependency — see the googleapis-inlining note in cdd/tasks/wire-and-converse.md).
+    "paths": {
+      "@jarvis/tools-mcp/google/auth": ["../tools-mcp/src/google/auth.ts"]
+    }
   },
   "include": [
     "src/main/**/*.ts",

@@ -45,6 +45,8 @@ export interface InvokeChannels {
   'audio:listInputs': () => Promise<{ id: string; label: string }[]>;
   /** Whether the voice pipeline is live, and (when it is not) the text-only-mode reason. */
   'voice:status': () => Promise<VoiceStatus>;
+  /** Minimizes the main window (custom titlebar minimize glyph). */
+  'window:minimize': () => Promise<void>;
   'app:quit': () => Promise<void>;
 }
 
@@ -72,6 +74,7 @@ export const INVOKE = {
   googleDisconnect: 'google:disconnect',
   audioListInputs: 'audio:listInputs',
   voiceStatus: 'voice:status',
+  windowMinimize: 'window:minimize',
   appQuit: 'app:quit'
 } as const satisfies Record<string, keyof InvokeChannels>;
 
@@ -91,6 +94,7 @@ export interface IpcDeps {
   disconnectGoogle(): Promise<void>;
   listAudioInputs(): Promise<{ id: string; label: string }[]>;
   voiceStatus(): Promise<VoiceStatus>;
+  minimizeWindow(): Promise<void>;
   quit(): Promise<void>;
 }
 
@@ -117,5 +121,6 @@ export function registerInvokeHandlers(deps: IpcDeps): void {
   ipcMain.handle(INVOKE.googleDisconnect, async () => deps.disconnectGoogle());
   ipcMain.handle(INVOKE.audioListInputs, async () => deps.listAudioInputs());
   ipcMain.handle(INVOKE.voiceStatus, async () => deps.voiceStatus());
+  ipcMain.handle(INVOKE.windowMinimize, async () => deps.minimizeWindow());
   ipcMain.handle(INVOKE.appQuit, async () => deps.quit());
 }

@@ -95,9 +95,17 @@ describe('buildPreloadApi channel wiring', () => {
     expect(received).toEqual(['listening']);
   });
 
+  it('minimize() invokes the window:minimize channel', async () => {
+    const { ipc, invoke } = makeMockIpc();
+    const api = buildPreloadApi(ipc);
+    await api.minimize();
+    expect(invoke).toHaveBeenCalledWith(INVOKE.windowMinimize);
+  });
+
   it('channel constants equal their contractual string values', () => {
     expect(INVOKE.configGet).toBe('config:get');
     expect(INVOKE.secretSet).toBe('secret:set');
+    expect(INVOKE.windowMinimize).toBe('window:minimize');
     expect(INVOKE.appQuit).toBe('app:quit');
     expect(PUSH.stateChanged).toBe('state:changed');
     expect(PUSH.agentEvent).toBe('agent:event');

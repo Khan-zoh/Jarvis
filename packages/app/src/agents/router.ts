@@ -15,6 +15,25 @@ const BUSY_REFUSAL = 'One moment, still working.';
 /** Default per-provider budget for ContextProvider.contribute before it is dropped. */
 const DEFAULT_PROVIDER_TIMEOUT_MS = 1500;
 
+/** Backend-switch context note: how many recent turns to summarize, and the per-text cap. */
+const SWITCH_NOTE_TURNS = 3;
+const SWITCH_NOTE_CHARS = 160;
+
+/**
+ * One-line context note injected when a backend starts a FRESH native thread inside a session
+ * that already has history (i.e. the first turn after a mid-session backend switch —
+ * cdd/plan/amendments.md non-blocking list). Kept cheap: the last 3 turns' user/assistant text,
+ * each capped at 160 chars. Exported for tests.
+ */
+export function buildSwitchNote(turns: TurnRecord[]): string {
+  const cap = (s: string): string =>
+    s.length > SWITCH_NOTE_CHARS ? `${s.slice(0, SWITCH_NOTE_CHARS - 1)}…` : s;
+  const lines = turns
+    .slice(-SWITCH_NOTE_TURNS)
+    .map((t) => `user: "${cap(t.userText)}" / you: "${cap(t.assistantText)}"`);
+  return `(Note: you are taking over an ongoing conversation mid-session. Recent turns — ${lines.join(' | ')})`;
+}
+
 /**
  * Leading-directive matcher. Matches only at the start of the utterance (mid-sentence mentions
  * are NOT routed):
@@ -151,13 +170,21 @@ export class AgentRouter {
         )
       );
       const preamble = contributions.filter((c): c is string => typeof c === 'string' && c.length > 0);
-      const input =
+      let input =
         preamble.length > 0
           ? `Context:\n${preamble.join('\n\n')}\n\n${route.cleanedInput}`
           : route.cleanedInput;
 
       const session = this.sessions.activeSession();
       const nativeId = this.sessions.backendSessionId(session.id, backendId);
+
+      // Backend switch mid-session: this backend is starting a fresh native thread while the
+      // session already has history, so prepend a bounded cross-backend summary
+      // (cdd/plan/amendments.md non-blocking list).
+      if (nativeId === null) {
+        const prior = this.sessions.turns(session.id);
+        if (prior.length > 0) input = `${buildSwitchNote(prior)}\n\n${input}`;
+      }
 
       const tools: { toolName: string; ok: boolean }[] = [];
       let streamedText = '';
