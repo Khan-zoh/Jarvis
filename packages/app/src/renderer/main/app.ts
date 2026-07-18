@@ -3,6 +3,7 @@ import {
   type AgentEvent,
   type AppConfig,
   type BackendId,
+  type CapturedNote,
   type SessionSummary,
   type TurnRecord
 } from '../../shared/types';
@@ -82,6 +83,9 @@ export class MainView {
   private readonly setupNotice: HTMLParagraphElement;
   private readonly sessionList: HTMLUListElement;
   private readonly transcript: HTMLDivElement;
+  /** Recently-captured strip (second brain) — hidden until the first capture. */
+  private readonly capturedSection: HTMLElement;
+  private readonly capturedList: HTMLUListElement;
   private readonly input: HTMLInputElement;
   private readonly backendClaude: HTMLSpanElement;
   private readonly backendCodex: HTMLSpanElement;
@@ -151,6 +155,18 @@ export class MainView {
     this.transcript = document.createElement('div');
     this.transcript.className = 'transcript';
 
+    // Recently captured strip (second brain): mono list of "noted: <title>" rows, each with a
+    // one-click undo (× → brain:remove). Hidden until there is at least one capture.
+    this.capturedSection = document.createElement('section');
+    this.capturedSection.className = 'captured';
+    this.capturedSection.hidden = true;
+    const capturedHeading = document.createElement('span');
+    capturedHeading.className = 'captured-heading';
+    capturedHeading.textContent = 'recently captured';
+    this.capturedList = document.createElement('ul');
+    this.capturedList.className = 'captured-list';
+    this.capturedSection.append(capturedHeading, this.capturedList);
+
     const bar = document.createElement('form');
     bar.className = 'command-bar';
     this.input = document.createElement('input');
@@ -179,7 +195,7 @@ export class MainView {
       this.submit();
     });
 
-    history.append(sessions, this.setupNotice, this.transcript, bar);
+    history.append(sessions, this.setupNotice, this.transcript, this.capturedSection, bar);
 
     /* ---- settings pane ---- */
     this.settingsPane = buildSettingsPane(api);
@@ -213,6 +229,14 @@ export class MainView {
     void this.refreshSessions(true);
     this.refreshVoiceStatus();
 
+    // Second brain: load the recently-captured strip, then keep it live.
+    void this.api
+      .brainRecent()
+      .then((notes) => {
+        for (const n of notes) this.addCapturedRow(n, false);
+      })
+      .catch(() => {});
+
     this.unsubs.push(
       api.onSessionUpdated((turn) => {
         // The persisted record replaces the live streaming rendition of the same turn.
@@ -231,7 +255,9 @@ export class MainView {
       }),
       api.onAgentEvent((e) => {
         this.onAgentEvent(e);
-      })
+      }),
+      api.onBrainCaptured((n) => this.addCapturedRow(n, true)),
+      api.onBrainRemoved((id) => this.removeCapturedRow(id))
     );
     document.addEventListener('keydown', this.onKeydown);
   }
@@ -384,6 +410,39 @@ export class MainView {
         (li as HTMLElement).dataset['sessionId'] === id
       );
     }
+  }
+
+  /* ---- recently captured strip (second brain) ---- */
+
+  /** Adds (or prepends) a "noted: <title>" row with a one-click undo. Ignores duplicate ids. */
+  private addCapturedRow(note: CapturedNote, prepend: boolean): void {
+    if (this.capturedList.querySelector(`li[data-note-id="${note.id}"]`)) return;
+    const li = document.createElement('li');
+    li.className = 'captured-item';
+    li.dataset['noteId'] = note.id;
+    const label = document.createElement('span');
+    label.className = 'captured-label';
+    label.textContent = `noted: ${note.title}`;
+    const undo = document.createElement('button');
+    undo.type = 'button';
+    undo.className = 'captured-undo';
+    undo.textContent = '×';
+    undo.title = 'undo — remove this note';
+    undo.addEventListener('click', () => {
+      void this.api.brainRemove(note.id);
+      this.removeCapturedRow(note.id);
+    });
+    li.append(label, undo);
+    if (prepend) this.capturedList.prepend(li);
+    else this.capturedList.appendChild(li);
+    // Bounded strip: keep the 8 most recent.
+    while (this.capturedList.childElementCount > 8) this.capturedList.lastElementChild?.remove();
+    this.capturedSection.hidden = false;
+  }
+
+  private removeCapturedRow(id: string): void {
+    this.capturedList.querySelector(`li[data-note-id="${id}"]`)?.remove();
+    if (this.capturedList.childElementCount === 0) this.capturedSection.hidden = true;
   }
 
   dispose(): void {

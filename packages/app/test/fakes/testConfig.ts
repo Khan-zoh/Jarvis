@@ -8,6 +8,7 @@ export function makeConfig(overrides?: {
   agentName?: string;
   defaultBackend?: BackendId;
   systemPromptExtra?: string;
+  secondBrain?: Partial<AppConfig['secondBrain']>;
 }): AppConfig {
   return {
     agentName: overrides?.agentName ?? 'Jarvis',
@@ -28,6 +29,12 @@ export function makeConfig(overrides?: {
       codex: { model: null }
     },
     google: { clientId: '', clientSecret: '', connectedEmail: null },
-    ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' }
+    ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' },
+    secondBrain: {
+      enabled: overrides?.secondBrain?.enabled ?? false,
+      vaultDir: overrides?.secondBrain?.vaultDir ?? 'D:\\JarvisBrain',
+      autoCapture: overrides?.secondBrain?.autoCapture ?? true,
+      recallMode: overrides?.secondBrain?.recallMode ?? 'hybrid'
+    }
   };
 }

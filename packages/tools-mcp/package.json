@@ -9,7 +9,10 @@
     "./google/auth": "./dist/google/auth.js",
     "./loader": "./dist/loader.js",
     "./pluginConfig": "./dist/pluginConfig.js",
-    "./plugin": "./dist/plugin.js"
+    "./plugin": "./dist/plugin.js",
+    "./brain/store": "./dist/brain/store.js",
+    "./brain/embedder": "./dist/brain/embedder.js",
+    "./brain/types": "./dist/brain/types.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

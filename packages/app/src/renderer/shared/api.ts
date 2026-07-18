@@ -4,6 +4,7 @@ import type {
   AppConfig,
   AssistantState,
   BackendId,
+  CapturedNote,
   ModelsFetchResult,
   ModelsStatus,
   PluginConfigDto,
@@ -57,6 +58,10 @@ export interface JarvisApi {
   fetchModels(): Promise<ModelsFetchResult>;
   /** Open-file dialog for a custom Porcupine `.ppn` keyword; null on cancel. */
   pickKeywordFile(): Promise<string | null>;
+  /** Recently auto-captured notes (second brain) for the recently-captured strip. */
+  brainRecent(): Promise<CapturedNote[]>;
+  /** Delete a captured note by id (one-click undo). */
+  brainRemove(id: string): Promise<void>;
   onStateChanged(fn: (s: AssistantState) => void): Unsubscribe;
   onTranscript(fn: (e: TranscriptEvent) => void): Unsubscribe;
   onAgentEvent(fn: (e: AgentEvent) => void): Unsubscribe;
@@ -65,6 +70,10 @@ export interface JarvisApi {
   onMicLevel?(fn: (level: number) => void): Unsubscribe;
   /** Progress lines streamed while models:fetch runs. */
   onModelsProgress(fn: (line: string) => void): Unsubscribe;
+  /** A durable fact was just auto-captured (second brain). */
+  onBrainCaptured(fn: (note: CapturedNote) => void): Unsubscribe;
+  /** A captured note was removed. */
+  onBrainRemoved(fn: (id: string) => void): Unsubscribe;
 }
 
 declare global {

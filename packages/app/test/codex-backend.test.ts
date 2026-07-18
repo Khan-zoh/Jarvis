@@ -109,7 +109,9 @@ describe('CodexBackend — instance & thread option assembly', () => {
     expect(js.args).toEqual([PATHS.entryJs]);
     expect(js.env).toEqual({
       ELECTRON_RUN_AS_NODE: '1',
-      JARVIS_DATA_DIR: PATHS.dataDir
+      JARVIS_DATA_DIR: PATHS.dataDir,
+      // Passed through so the brain plugin can resolve the embedding model (empty when unset).
+      JARVIS_MODELS_DIR: process.env['JARVIS_MODELS_DIR'] ?? ''
     });
     // env NOT set at the CodexOptions level (codex CLI must inherit process.env).
     expect(fakeRef().createOptions?.env).toBeUndefined();

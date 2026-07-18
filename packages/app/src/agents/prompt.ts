@@ -29,6 +29,14 @@ export function buildSystemPrompt(cfg: AppConfig, now: Date = new Date()): strin
     // Current date/time and timezone
     `The current date and time is ${now.toISOString()} (timezone: ${timeZone}).`
   ];
+  // Second-brain doctrine: only when enabled, so an off vault never advertises tools that stub out.
+  if (cfg.secondBrain.enabled) {
+    parts.push(
+      'You have a second brain — the user\'s personal notes and memory. Relevant notes may already ' +
+        'be provided to you as context. You can also search it with brain_search, save durable ' +
+        'notes, and when the user asks to "clean up" or "organize" their notes call brain_consolidate.'
+    );
+  }
   const extra = cfg.agents.claude.systemPromptExtra.trim();
   if (extra) parts.push(extra);
   return parts.join('\n\n');

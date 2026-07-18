@@ -28,6 +28,32 @@ export interface AppConfig {
   };
   google: { clientId: string; clientSecret: string; connectedEmail: string | null };
   ui: { launchOnStartup: boolean; hotkey: string /* e.g. "Ctrl+Shift+Space" */ };
+  /**
+   * Second brain (cdd/plan/second-brain.md, amended by amendments.md A8). `enabled` is the master
+   * toggle — false until the user turns it on and the embedding model is fetched; it gates the
+   * app-side recall provider + auto-capture observer (and the model download). `vaultDir` is the
+   * markdown vault location (kept off OneDrive by default). `recallMode`: hybrid = profile +
+   * above-threshold notes; on-demand = profile only (notes only when the model searches);
+   * proactive = profile + all notes with a hit.
+   */
+  secondBrain: {
+    enabled: boolean;
+    vaultDir: string;
+    autoCapture: boolean;
+    recallMode: 'hybrid' | 'on-demand' | 'proactive';
+  };
+}
+
+/**
+ * One auto-captured note surfaced to the renderer: the "noted: <title>" overlay toast and the
+ * main-window "recently captured" strip (with one-click undo). A trimmed view of a BrainStore
+ * Note — the renderer never imports the store (it pulls in Node/better-sqlite3).
+ */
+export interface CapturedNote {
+  id: string;
+  title: string;
+  /** ISO timestamp the note was captured/updated. */
+  at: string;
 }
 
 export interface TranscriptEvent { text: string; final: boolean }
@@ -174,7 +200,13 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     codex: { model: null }
   },
   google: { clientId: '', clientSecret: '', connectedEmail: null },
-  ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' }
+  ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' },
+  secondBrain: {
+    enabled: false,
+    vaultDir: 'D:\\JarvisBrain',
+    autoCapture: true,
+    recallMode: 'hybrid'
+  }
 };
 
 /**

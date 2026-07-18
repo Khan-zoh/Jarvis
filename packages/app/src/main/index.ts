@@ -24,6 +24,9 @@ import { SessionStore } from '../agents/sessions';
 import { AgentRouter } from '../agents/router';
 import { ClaudeBackend } from '../agents/claude';
 import { CodexBackend } from '../agents/codex';
+import { createBrainRuntime, type BrainRuntime } from '../agents/brain/runtime';
+import { detectOffTheRecord } from '../agents/brain/offTheRecord';
+import type { AppConfig } from '../shared/types';
 import { createAudioCapture, type AudioCapture } from '../voice/capture';
 import { createWakeWordDetector } from '../voice/wakeword';
 import { createVoiceActivityDetector } from '../voice/vad';
@@ -53,6 +56,7 @@ if (!gotLock) {
 } else {
   let windows: WindowManager | null = null;
   let voiceRuntime: VoiceRuntime | null = null;
+  let brainRuntime: BrainRuntime | null = null;
 
   app.on('second-instance', () => {
     windows?.showMain();
@@ -82,9 +86,50 @@ if (!gotLock) {
     mkdirSync(agentCwd, { recursive: true });
     const claude = new ClaudeBackend({ getConfig: () => config.get(), toolsPaths, cwd: agentCwd });
     const codex = new CodexBackend(config.get(), toolsPaths);
+
+    // Let the disposable tools-mcp worker resolve the embedding model (brain plugin) — its cwd is
+    // not guaranteed to be the repo root, so it reads JARVIS_MODELS_DIR (see toolsLauncher).
+    process.env['JARVIS_MODELS_DIR'] = modelsRootDir();
+
+    // Second brain (cdd/plan/second-brain.md, amendments.md A8). The app owns ONE shared
+    // BrainStore instance (the tools-mcp brain plugin opens the SAME vault/index in its own
+    // process; the engine is multi-process safe). Built only when enabled AND the embedding model
+    // is on disk; the recall provider + capture observer re-check `enabled` live each turn.
+    // Mirror the app-authoritative secondBrain settings into plugins/brain.json so the MCP
+    // worker's on-demand brain_* tools open the same vault the app writes.
+    const mirrorBrainConfig = (c: AppConfig): void => {
+      writePluginConfig(userData, 'brain', {
+        vaultDir: c.secondBrain.vaultDir,
+        autoCapture: c.secondBrain.autoCapture,
+        recallMode: c.secondBrain.recallMode
+      });
+    };
+    mirrorBrainConfig(config.get());
+    config.on('changed', () => mirrorBrainConfig(config.get()));
+
+    const getDefaultBackend = (): ClaudeBackend | CodexBackend =>
+      config.get().agents.defaultBackend === 'codex' ? codex : claude;
+    const brain: BrainRuntime | null = ((): BrainRuntime | null => {
+      if (!config.get().secondBrain.enabled) return null;
+      const built = createBrainRuntime({
+        getConfig: () => config.get(),
+        dataDir: userData,
+        modelsRoot: modelsRootDir(),
+        getBackend: getDefaultBackend,
+        onCaptured: (note) => wm.broadcast('brain:captured', note)
+      });
+      if ('unavailable' in built) {
+        console.log(`[main] second brain not started: ${built.unavailable}`);
+        return null;
+      }
+      console.log('[main] second brain enabled');
+      return built;
+    })();
+    brainRuntime = brain; // module-scoped handle so will-quit can dispose it
+
     const router = new AgentRouter({ claude, codex }, sessions, () => config.get(), {
-      providers: [],
-      observers: []
+      providers: brain ? [brain.provider] : [],
+      observers: brain ? [brain.observer] : []
     });
 
     // -----------------------------------------------------------------------------------------
@@ -96,7 +141,18 @@ if (!gotLock) {
       router,
       sessions,
       pipeline: () => voiceRuntime?.pipeline ?? null,
-      broadcast: (ch, ...args) => wm.broadcast(ch, ...args)
+      broadcast: (ch, ...args) => wm.broadcast(ch, ...args),
+      // Off-the-record voice path (A8): only active when the brain runs. "forget that" also
+      // removes the most recent auto-capture and syncs the UI.
+      offTheRecord: brain
+        ? {
+            detect: detectOffTheRecord,
+            forgetLast: async () => {
+              const removed = await brain?.forgetLast();
+              if (removed) wm.broadcast('brain:removed', removed);
+            }
+          }
+        : undefined
     });
 
     wm.createTray({
@@ -218,7 +274,26 @@ if (!gotLock) {
           else await connectGoogle();
           return;
         }
+        if (id === 'brain') {
+          if (!brain) throw new Error('second brain is off — enable it in settings and restart.');
+          if (key === 'reindex') {
+            await brain.reindex();
+            return;
+          }
+          if (key === 'consolidate') {
+            await brain.consolidate();
+            return;
+          }
+        }
         throw new Error(`unknown plugin action: ${id}/${key}`);
+      },
+      // Second-brain capture UI: the recently-captured strip + one-click undo. Empty/no-op when
+      // the brain is off.
+      brainRecent: async () => (brain ? brain.recent(10) : []),
+      brainRemove: async (id) => {
+        if (!brain) return;
+        await brain.remove(id);
+        wm.broadcast('brain:removed', id);
       },
       // Both backends probed via their real init() (settings-ui task: the accounts section's
       // status lines + fix hints come from these results, not hard-coded copy).
@@ -309,6 +384,8 @@ if (!gotLock) {
     // Tear down child processes (ffmpeg capture, whisper-server) — no orphans.
     voiceRuntime?.dispose();
     voiceRuntime = null;
+    brainRuntime?.dispose();
+    brainRuntime = null;
     windows?.dispose();
   });
 }

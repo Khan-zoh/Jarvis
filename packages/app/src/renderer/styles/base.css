@@ -344,6 +344,63 @@ button {
 
 /* command bar */
 
+/* Recently-captured strip (second brain): mono "noted:" rows above the command bar. */
+.captured {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 28px;
+  border-top: var(--hairline);
+}
+
+.captured-heading {
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--grey-2);
+}
+
+.captured-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.captured-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+}
+
+.captured-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.captured-undo {
+  flex: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--grey-2);
+  padding: 0 2px;
+}
+
+.captured-undo:hover {
+  color: inherit;
+}
+
 .command-bar {
   flex: none;
   display: flex;

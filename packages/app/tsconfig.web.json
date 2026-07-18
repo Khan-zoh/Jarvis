@@ -9,6 +9,7 @@
     "src/renderer/**/*.ts",
     "test/overlay-view.test.ts",
     "test/main-view.test.ts",
-    "test/settings.test.ts"
+    "test/settings.test.ts",
+    "test/brain-ui.test.ts"
   ]
 }

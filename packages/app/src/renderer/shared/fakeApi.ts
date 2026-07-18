@@ -4,6 +4,7 @@ import type {
   AppConfig,
   AssistantState,
   BackendId,
+  CapturedNote,
   ModelsFetchResult,
   ModelsStatus,
   PluginConfigDto,
@@ -38,6 +39,8 @@ export interface FakeApi extends JarvisApi {
   fetchResult: ModelsFetchResult;
   /** What pickKeywordFile() resolves with (null = user cancelled). */
   pickedKeywordFile: string | null;
+  /** What brainRecent() resolves with; set before constructing a view. */
+  capturedNotes: CapturedNote[];
   calls: {
     sendText: [text: string, backend: BackendId | undefined][];
     setConfig: Partial<AppConfig>[];
@@ -47,6 +50,7 @@ export interface FakeApi extends JarvisApi {
     pluginSetSecret: [id: string, key: string, value: string][];
     pluginAction: [id: string, key: string][];
     fetchModels: number;
+    brainRemove: string[];
   };
   pushState(s: AssistantState): void;
   pushTranscript(e: TranscriptEvent): void;
@@ -55,6 +59,8 @@ export interface FakeApi extends JarvisApi {
   pushConfig(c: AppConfig): void;
   pushMicLevel(level: number): void;
   pushModelsProgress(line: string): void;
+  pushBrainCaptured(note: CapturedNote): void;
+  pushBrainRemoved(id: string): void;
 }
 
 export const FAKE_CONFIG: AppConfig = {
@@ -76,7 +82,13 @@ export const FAKE_CONFIG: AppConfig = {
     codex: { model: null }
   },
   google: { clientId: '', clientSecret: '', connectedEmail: null },
-  ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' }
+  ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' },
+  secondBrain: {
+    enabled: false,
+    vaultDir: 'D:\\JarvisBrain',
+    autoCapture: true,
+    recallMode: 'hybrid'
+  }
 };
 
 type Listener = (arg: never) => void;
@@ -111,6 +123,7 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     accounts: { claude: { ok: true }, codex: { ok: true } },
     fetchResult: { ok: true, failed: [] },
     pickedKeywordFile: null,
+    capturedNotes: [],
     calls: {
       sendText: [],
       setConfig: [],
@@ -119,7 +132,8 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
       pluginSetConfig: [],
       pluginSetSecret: [],
       pluginAction: [],
-      fetchModels: 0
+      fetchModels: 0,
+      brainRemove: []
     },
 
     getConfig: () => Promise.resolve(api.config),
@@ -170,6 +184,11 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
       return Promise.resolve(api.fetchResult);
     },
     pickKeywordFile: () => Promise.resolve(api.pickedKeywordFile),
+    brainRecent: () => Promise.resolve(api.capturedNotes),
+    brainRemove: (id) => {
+      api.calls.brainRemove.push(id);
+      return Promise.resolve();
+    },
 
     onStateChanged: (fn) => on('state:changed', fn as Listener),
     onTranscript: (fn) => on('transcript', fn as Listener),
@@ -178,6 +197,8 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     onConfigChanged: (fn) => on('config:changed', fn as Listener),
     onMicLevel: (fn) => on('mic:level', fn as Listener),
     onModelsProgress: (fn) => on('models:progress', fn as Listener),
+    onBrainCaptured: (fn) => on('brain:captured', fn as Listener),
+    onBrainRemoved: (fn) => on('brain:removed', fn as Listener),
 
     pushState: (s) => emit('state:changed', s),
     pushTranscript: (e) => emit('transcript', e),
@@ -185,7 +206,9 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     pushTurn: (turn) => emit('session:updated', turn),
     pushConfig: (c) => emit('config:changed', c),
     pushMicLevel: (level) => emit('mic:level', level),
-    pushModelsProgress: (line) => emit('models:progress', line)
+    pushModelsProgress: (line) => emit('models:progress', line),
+    pushBrainCaptured: (note) => emit('brain:captured', note),
+    pushBrainRemoved: (id) => emit('brain:removed', id)
   };
 
   return api;

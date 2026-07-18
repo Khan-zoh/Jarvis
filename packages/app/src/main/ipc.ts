@@ -5,6 +5,7 @@ import type {
   AppConfig,
   AssistantState,
   BackendId,
+  CapturedNote,
   ModelsFetchResult,
   ModelsStatus,
   PluginConfigDto,
@@ -31,6 +32,11 @@ export interface PushChannels {
   /** One human-readable progress line per model spec while `models:fetch` runs (settings-ui:
    * the "download models" button streams these into the voice section). */
   'models:progress': (line: string) => void;
+  /** A durable fact the auto-capture observer just stored — drives the "noted:" overlay/toast
+   * and prepends to the main-window recently-captured strip (second brain). */
+  'brain:captured': (note: CapturedNote) => void;
+  /** An auto-capture was removed (undo, "forget that", or cross-window sync) — remove its row. */
+  'brain:removed': (id: string) => void;
 }
 
 /**
@@ -74,6 +80,10 @@ export interface InvokeChannels {
   'models:fetch': () => Promise<ModelsFetchResult>;
   /** Native open-file dialog filtered to Porcupine `.ppn` keyword files; null on cancel. */
   'dialog:pickKeywordFile': () => Promise<string | null>;
+  /** Recently auto-captured notes for the main-window strip (second brain). Empty when off. */
+  'brain:recent': () => Promise<CapturedNote[]>;
+  /** Delete a captured note by id (one-click undo). No-op when the brain is off. */
+  'brain:remove': (id: string) => Promise<void>;
 }
 
 /** Canonical push (main → renderer) channel names. The single source of truth. */
@@ -84,7 +94,9 @@ export const PUSH = {
   sessionUpdated: 'session:updated',
   configChanged: 'config:changed',
   micLevel: 'mic:level',
-  modelsProgress: 'models:progress'
+  modelsProgress: 'models:progress',
+  brainCaptured: 'brain:captured',
+  brainRemoved: 'brain:removed'
 } as const satisfies Record<string, keyof PushChannels>;
 
 /** Canonical invoke (renderer → main) channel names. The single source of truth. */
@@ -111,7 +123,9 @@ export const INVOKE = {
   accountsStatus: 'accounts:status',
   modelsStatus: 'models:status',
   modelsFetch: 'models:fetch',
-  pickKeywordFile: 'dialog:pickKeywordFile'
+  pickKeywordFile: 'dialog:pickKeywordFile',
+  brainRecent: 'brain:recent',
+  brainRemove: 'brain:remove'
 } as const satisfies Record<string, keyof InvokeChannels>;
 
 /**
@@ -141,6 +155,8 @@ export interface IpcDeps {
   modelsStatus(): Promise<ModelsStatus>;
   fetchModels(): Promise<ModelsFetchResult>;
   pickKeywordFile(): Promise<string | null>;
+  brainRecent(): Promise<CapturedNote[]>;
+  brainRemove(id: string): Promise<void>;
 }
 
 /** Wires every InvokeChannel to its handler on `ipcMain`. Call once, after `app.whenReady()`. */
@@ -185,4 +201,6 @@ export function registerInvokeHandlers(deps: IpcDeps): void {
   ipcMain.handle(INVOKE.modelsStatus, async () => deps.modelsStatus());
   ipcMain.handle(INVOKE.modelsFetch, async () => deps.fetchModels());
   ipcMain.handle(INVOKE.pickKeywordFile, async () => deps.pickKeywordFile());
+  ipcMain.handle(INVOKE.brainRecent, async () => deps.brainRecent());
+  ipcMain.handle(INVOKE.brainRemove, async (_e, id: string) => deps.brainRemove(id));
 }

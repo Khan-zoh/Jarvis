@@ -1,6 +1,8 @@
 import type { AgentEvent, BackendId } from '../shared/types';
 import type { AgentRouter } from '../agents/router';
 import type { SessionStore } from '../agents/sessions';
+import type { OffTheRecordResult } from '../agents/brain/offTheRecord';
+import { OFF_THE_RECORD_ACK } from '../agents/brain/offTheRecord';
 import type { PushChannels } from './ipc';
 
 /**
@@ -32,12 +34,22 @@ export type Broadcast = <K extends keyof PushChannels>(
 ) => void;
 
 export interface ConductorDeps {
-  router: Pick<AgentRouter, 'dispatch' | 'interrupt'>;
+  router: Pick<AgentRouter, 'dispatch' | 'interrupt' | 'setOffTheRecord'>;
   sessions: Pick<SessionStore, 'activeSession' | 'turns'>;
   /** Getter, not a value: the pipeline is constructed after IPC/tray wiring and may be absent
    * (text-only mode) or replaced (tray pause/resume). */
   pipeline: () => ConductorPipeline | null;
   broadcast: Broadcast;
+  /**
+   * Off-the-record hook (second brain). Present only when the brain is enabled. `detect` marks an
+   * utterance; `forgetLast` removes the most recent auto-capture for "forget that". A bare
+   * directive is acknowledged and NOT dispatched; a directive with real content sets the router
+   * flag (capture skipped, turn still persisted — A8) and dispatches the remainder.
+   */
+  offTheRecord?: {
+    detect: (text: string) => OffTheRecordResult;
+    forgetLast?: () => Promise<unknown> | void;
+  };
 }
 
 export class Conductor {
@@ -70,7 +82,22 @@ export class Conductor {
     onEvent: (e: AgentEvent) => void
   ): Promise<void> {
     try {
-      const record = await this.deps.router.dispatch(text, onEvent, backend);
+      let input = text;
+      // Off-the-record pre-check (second brain, A8): runs before dispatch so the router's
+      // per-turn flag is set before it consumes it.
+      const otr = this.deps.offTheRecord?.detect(text);
+      if (otr?.offTheRecord) {
+        if (otr.forget) void Promise.resolve(this.deps.offTheRecord?.forgetLast?.()).catch(() => {});
+        if (otr.standalone) {
+          // Nothing left to answer: acknowledge and stop — no backend, no persisted turn.
+          onEvent({ kind: 'text_delta', text: OFF_THE_RECORD_ACK });
+          onEvent({ kind: 'done', finalText: OFF_THE_RECORD_ACK });
+          return;
+        }
+        this.deps.router.setOffTheRecord(true);
+        input = otr.cleaned;
+      }
+      const record = await this.deps.router.dispatch(input, onEvent, backend);
       // Only persisted turns are pushed: busy refusals / failed inits return a synthetic record
       // that never reached the store, and the history view must mirror the store.
       const active = this.deps.sessions.activeSession();
