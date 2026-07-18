@@ -6,7 +6,10 @@
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
-    "./google/auth": "./dist/google/auth.js"
+    "./google/auth": "./dist/google/auth.js",
+    "./loader": "./dist/loader.js",
+    "./pluginConfig": "./dist/pluginConfig.js",
+    "./plugin": "./dist/plugin.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

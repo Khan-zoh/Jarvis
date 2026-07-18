@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -8,6 +16,8 @@ import {
   dpapiEncrypt,
   readPluginConfig,
   readPluginSecrets,
+  writePluginConfig,
+  writePluginSecret,
   type SyncPsRunner
 } from '../src/pluginConfig.js';
 
@@ -76,6 +86,59 @@ describe('secrets via injected codec seam', () => {
     expect(ctx.config).toEqual({ a: 1 });
     ctx.logger.warn('hi');
     expect(warnings).toEqual(['[demo] hi']);
+  });
+});
+
+describe('writePluginConfig', () => {
+  it('creates the plugins dir + json file when absent, then merges patches atomically', () => {
+    const freshDir = mkdtempSync(join(tmpdir(), 'jarvis-pluginconfig-write-'));
+    writePluginConfig(freshDir, 'system', { allowUnsafePaths: true });
+    expect(readPluginConfig(freshDir, 'system')).toEqual({ allowUnsafePaths: true });
+
+    writePluginConfig(freshDir, 'system', { extra: 'x' });
+    expect(readPluginConfig(freshDir, 'system')).toEqual({ allowUnsafePaths: true, extra: 'x' });
+
+    // No leftover temp files after the rename.
+    const entries = readdirSync(join(freshDir, 'plugins'));
+    expect(entries.every((f) => !f.includes('.tmp-'))).toBe(true);
+    rmSync(freshDir, { recursive: true, force: true });
+  });
+
+  it('a later patch overwrites only the keys it sets', () => {
+    writePluginConfig(dir, 'google', { clientId: 'abc' });
+    writePluginConfig(dir, 'google', { clientId: 'def' });
+    expect(readPluginConfig(dir, 'google')).toEqual({ clientId: 'def' });
+  });
+});
+
+describe('writePluginSecret', () => {
+  it('encrypts + merges by key, round-tripping through readPluginSecrets', () => {
+    writePluginSecret(dir, 'google', 'clientSecret', 's3cr3t', fakePs);
+    expect(readPluginSecrets(dir, 'google', fakePs)).toEqual({ clientSecret: 's3cr3t' });
+
+    // A second key is added without disturbing the first.
+    writePluginSecret(dir, 'google', 'other', 'value2', fakePs);
+    expect(readPluginSecrets(dir, 'google', fakePs)).toEqual({
+      clientSecret: 's3cr3t',
+      other: 'value2'
+    });
+
+    // Overwriting an existing key replaces only that key.
+    writePluginSecret(dir, 'google', 'clientSecret', 'rotated', fakePs);
+    expect(readPluginSecrets(dir, 'google', fakePs)).toEqual({
+      clientSecret: 'rotated',
+      other: 'value2'
+    });
+
+    // The on-disk blob is never plaintext.
+    const raw = readFileSync(join(dir, 'plugins', 'google.secrets'), 'utf8');
+    expect(raw).not.toContain('rotated');
+  });
+
+  it('starts a fresh .secrets file when none exists yet', () => {
+    expect(existsSync(join(dir, 'plugins', 'brandnew.secrets'))).toBe(false);
+    writePluginSecret(dir, 'brandnew', 'key', 'val', fakePs);
+    expect(readPluginSecrets(dir, 'brandnew', fakePs)).toEqual({ key: 'val' });
   });
 });
 

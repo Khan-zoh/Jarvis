@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MainView, relativeTime, renderTranscript } from '../src/renderer/main/app';
 import { createFakeApi, type FakeApi } from '../src/renderer/shared/fakeApi';
-import type { TurnRecord } from '../src/shared/types';
+import { DEFAULT_APP_CONFIG, type TurnRecord } from '../src/shared/types';
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
@@ -170,6 +170,10 @@ describe('MainView live events (wire-and-converse)', () => {
     const notice = root.querySelector('.setup-notice') as HTMLElement;
     expect(notice.hidden).toBe(false);
     expect(notice.textContent).toContain('fetch-models');
+    // settings-ui copy voice: lowercase "voice off — <reason>" phrasing.
+    expect(notice.textContent).toBe(
+      'voice off — voice models are missing — run `npm run fetch-models`.'
+    );
 
     // Voice comes up (e.g. models fetched + config fixed): a config change re-queries status.
     api.voice = { enabled: true, reason: null };
@@ -236,6 +240,35 @@ describe('MainView live events (wire-and-converse)', () => {
     await makeView();
     (root.querySelector('.btn-min') as HTMLButtonElement).click();
     expect(api.calls.minimize).toBe(1);
+  });
+
+  it('first-run (default config + models missing) opens the settings pane in setup mode', async () => {
+    api.config = structuredClone(DEFAULT_APP_CONFIG);
+    api.models = { ok: false, missing: ['whisper/ggml-small.en.bin'] };
+    await makeView();
+    await flush();
+    const pane = root.querySelector('.settings') as HTMLElement;
+    expect(pane.hidden).toBe(false);
+    const checklist = root.querySelector('.setup-checklist') as HTMLElement;
+    expect(checklist.hidden).toBe(false);
+    expect(checklist.querySelectorAll('li')).toHaveLength(5);
+  });
+
+  it('no setup mode when config was already touched, even with models missing', async () => {
+    // FAKE_CONFIG differs from the factory default (name lowercase, tts on).
+    api.models = { ok: false, missing: ['whisper/ggml-small.en.bin'] };
+    await makeView();
+    await flush();
+    expect((root.querySelector('.settings') as HTMLElement).hidden).toBe(true);
+    expect((root.querySelector('.setup-checklist') as HTMLElement).hidden).toBe(true);
+  });
+
+  it('no setup mode when models are present, even on a default config', async () => {
+    api.config = structuredClone(DEFAULT_APP_CONFIG);
+    api.models = { ok: true };
+    await makeView();
+    await flush();
+    expect((root.querySelector('.settings') as HTMLElement).hidden).toBe(true);
   });
 });
 

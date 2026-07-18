@@ -1,8 +1,16 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { app, shell } from 'electron';
+import { app, dialog, shell } from 'electron';
 import { createGoogleAuthManager } from '@jarvis/tools-mcp/google/auth';
+import { fetchModels } from '../../../../scripts/fetch-models';
+import { pluginManifests } from '@jarvis/tools-mcp/loader';
+import {
+  readPluginConfig,
+  readPluginSecrets,
+  writePluginConfig,
+  writePluginSecret
+} from '@jarvis/tools-mcp/pluginConfig';
 import { ConfigStore } from './config';
 import { WindowManager } from './windows';
 import { registerInvokeHandlers, type IpcDeps } from './ipc';
@@ -10,6 +18,7 @@ import { setLaunchOnStartup } from './autostart';
 import { resolveModelPaths } from './modelPaths';
 import { toolsMcpEntry } from './paths';
 import { Conductor } from './conductor';
+import { VoiceManager } from './voiceManager';
 import type { VoiceStatus } from '../shared/types';
 import { SessionStore } from '../agents/sessions';
 import { AgentRouter } from '../agents/router';
@@ -111,8 +120,9 @@ if (!gotLock) {
       onQuit: () => app.quit()
     });
 
-    // Keep the OS login-item registration in step with config.
+    // Keep the OS login-item registration in step with config, both now and reactively.
     setLaunchOnStartup(config.get().ui.launchOnStartup);
+    config.on('changed', (c) => setLaunchOnStartup(c.ui.launchOnStartup));
 
     // Broadcast redacted config changes to every renderer.
     config.on('changed', (redacted) => wm.broadcast('config:changed', redacted));
@@ -121,6 +131,35 @@ if (!gotLock) {
     // IPC: config/app:quit/voice channels are real. Agent/session/google handlers remain stubs
     // that later tasks replace by injecting real implementations through this same IpcDeps.
     // -----------------------------------------------------------------------------------------
+    // Google OAuth (installed-app loopback). The flow runs in the app because it must open a
+    // browser; the disposable MCP worker only ever reads the persisted token file. dataDir is
+    // userData, matching what the tools-mcp launcher passes as JARVIS_DATA_DIR. Named helpers
+    // (not inline deps) because BOTH google:connect/disconnect AND the generic plugin:action
+    // route here (the google plugin declares a `connect` action-kind setting).
+    const connectGoogle = async (): Promise<{ email: string }> => {
+      const { clientId, clientSecret } = config.get().google;
+      if (!clientId || !clientSecret) {
+        throw new Error('Add your Google client ID and secret in Settings before connecting.');
+      }
+      const manager = createGoogleAuthManager({
+        dataDir: app.getPath('userData'),
+        openBrowser: (url) => {
+          void shell.openExternal(url);
+        }
+      });
+      const { email } = await manager.beginAuthFlow(clientId, clientSecret);
+      config.set({ google: { ...config.get().google, connectedEmail: email } });
+      return { email };
+    };
+    const disconnectGoogle = async (): Promise<void> => {
+      const manager = createGoogleAuthManager({
+        dataDir: app.getPath('userData'),
+        openBrowser: () => {}
+      });
+      await manager.disconnect();
+      config.set({ google: { ...config.get().google, connectedEmail: null } });
+    };
+
     const deps: IpcDeps = {
       config,
       // Text bar: same dispatch path as voice, but NEVER through the pipeline — text-bar turns
@@ -133,34 +172,8 @@ if (!gotLock) {
       newSession: async () => {
         sessions.newSession();
       },
-      // Google OAuth (installed-app loopback). The flow runs in the app because it must open a
-      // browser; the disposable MCP worker only ever reads the persisted token file. dataDir is
-      // userData, matching what the tools-mcp launcher passes as JARVIS_DATA_DIR.
-      connectGoogle: async () => {
-        const { clientId, clientSecret } = config.get().google;
-        if (!clientId || !clientSecret) {
-          throw new Error(
-            'Add your Google client ID and secret in Settings before connecting.'
-          );
-        }
-        const manager = createGoogleAuthManager({
-          dataDir: app.getPath('userData'),
-          openBrowser: (url) => {
-            void shell.openExternal(url);
-          }
-        });
-        const { email } = await manager.beginAuthFlow(clientId, clientSecret);
-        config.set({ google: { ...config.get().google, connectedEmail: email } });
-        return { email };
-      },
-      disconnectGoogle: async () => {
-        const manager = createGoogleAuthManager({
-          dataDir: app.getPath('userData'),
-          openBrowser: () => {}
-        });
-        await manager.disconnect();
-        config.set({ google: { ...config.get().google, connectedEmail: null } });
-      },
+      connectGoogle,
+      disconnectGoogle,
       listAudioInputs: async () => {
         if (voiceRuntime) return voiceRuntime.capture.listInputs();
         // Text-only mode: still enumerate devices when ffmpeg is provisioned, so the settings UI
@@ -177,6 +190,69 @@ if (!gotLock) {
       },
       quit: async () => {
         app.quit();
+      },
+      // Generic plugin settings IPC (amendments.md's deferred note): the manifest comes straight
+      // from the tools-mcp workspace package — no hard-coded plugin list, so a new plugin's
+      // settings[] appears here with zero changes to this file. Config/secrets persist under
+      // JARVIS_DATA_DIR/plugins/<id>.{json,secrets} — the SAME files the disposable MCP worker's
+      // PluginContext reads at boot (src/pluginConfig.ts), so a setting saved here is live for the
+      // next turn's tools-mcp spawn without any extra plumbing.
+      listPluginManifests: async () => pluginManifests(),
+      getPluginConfig: async (id) => {
+        const cfg = readPluginConfig(userData, id);
+        const secrets = readPluginSecrets(userData, id);
+        return { config: cfg, secretsSet: Object.keys(secrets) };
+      },
+      setPluginConfig: async (id, patch) => {
+        writePluginConfig(userData, id, patch);
+      },
+      setPluginSecret: async (id, key, value) => {
+        writePluginSecret(userData, id, key, value);
+      },
+      // Generic plugin actions: the manifest declares the (id, key); the app owns the handler.
+      // google/connect toggles: connect when no account is linked, disconnect when one is —
+      // exactly the behavior of the dedicated accounts-section button.
+      pluginAction: async (id, key) => {
+        if (id === 'google' && key === 'connect') {
+          if (config.get().google.connectedEmail) await disconnectGoogle();
+          else await connectGoogle();
+          return;
+        }
+        throw new Error(`unknown plugin action: ${id}/${key}`);
+      },
+      // Both backends probed via their real init() (settings-ui task: the accounts section's
+      // status lines + fix hints come from these results, not hard-coded copy).
+      accountsStatus: async () => {
+        const [claudeProbe, codexProbe] = await Promise.all([claude.init(), codex.init()]);
+        return { claude: claudeProbe, codex: codexProbe };
+      },
+      modelsStatus: async () => {
+        const paths = resolveModelPaths({ modelsRoot: modelsRootDir() });
+        return 'missing' in paths ? { ok: false, missing: paths.missing } : { ok: true };
+      },
+      // Runs the real fetch-models pipeline in-process, streaming each log line to the settings
+      // pane over models:progress. On success the voice pipeline is force-rebuilt: fresh models
+      // can satisfy startup prerequisites that no config field reflects.
+      fetchModels: async () => {
+        const results = await fetchModels({
+          modelsRoot: modelsRootDir(),
+          log: (line) => wm.broadcast('models:progress', line)
+        });
+        const failed = results.filter((r) => r.status === 'failed');
+        for (const f of failed) {
+          wm.broadcast('models:progress', `${f.name}: failed — ${f.message ?? 'unknown error'}`);
+        }
+        const ok = failed.length === 0;
+        if (ok) void voiceManager.refresh();
+        return { ok, failed: failed.map((f) => f.name) };
+      },
+      pickKeywordFile: async () => {
+        const picked = await dialog.showOpenDialog({
+          title: 'choose a custom wake word (.ppn)',
+          filters: [{ name: 'porcupine keyword', extensions: ['ppn'] }],
+          properties: ['openFile']
+        });
+        return picked.canceled ? null : (picked.filePaths[0] ?? null);
       }
     };
     registerInvokeHandlers(deps);
@@ -196,17 +272,32 @@ if (!gotLock) {
     // Otherwise stay in text-only mode and surface the reason via the 'voice:status' channel.
     // Missing prerequisites are NOT a transient error (cdd/plan/amendments.md, error-policy
     // nuance): they are a durable setup state until the user fixes the named cause.
+    //
+    // settings-ui task: this is no longer a one-shot startup gate. VoiceManager watches
+    // config:changed and, when a voice-relevant field (Picovoice key/keyword/device/model paths)
+    // actually changes, tears down the running pipeline and rebuilds it from scratch — no app
+    // restart required. A change to an unrelated field (agent name, hotkey, google, …) is a no-op.
     // -----------------------------------------------------------------------------------------
-    const result = await startVoicePipeline(config, wm, conductor);
-    if ('reason' in result) {
-      voiceDisabledReason = result.reason;
-      console.log(`[main] voice disabled (text-only mode): ${result.reason}`);
-    } else {
-      voiceRuntime = result;
-      voiceDisabledReason = null;
-      wm.setListening(true);
-      console.log('[main] voice pipeline started');
-    }
+    const applyVoiceResult = (result: VoiceRuntime | { reason: string }): void => {
+      if ('reason' in result) {
+        voiceRuntime = null;
+        voiceDisabledReason = result.reason;
+        wm.setListening(false);
+        console.log(`[main] voice disabled (text-only mode): ${result.reason}`);
+      } else {
+        voiceRuntime = result;
+        voiceDisabledReason = null;
+        wm.setListening(true);
+        console.log('[main] voice pipeline started');
+      }
+    };
+    const voiceManager = new VoiceManager<VoiceRuntime>({
+      build: () => startVoicePipeline(config, wm, conductor),
+      dispose: (runtime) => runtime.dispose(),
+      onChange: applyVoiceResult
+    });
+    applyVoiceResult(await voiceManager.init(config.get()));
+    config.on('changed', (c) => voiceManager.onConfigChanged(c));
   });
 
   app.on('window-all-closed', () => {

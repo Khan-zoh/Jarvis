@@ -1,8 +1,13 @@
 import type {
+  AccountsStatus,
   AgentEvent,
   AppConfig,
   AssistantState,
   BackendId,
+  ModelsFetchResult,
+  ModelsStatus,
+  PluginConfigDto,
+  PluginManifest,
   SessionSummary,
   TranscriptEvent,
   TurnRecord,
@@ -21,11 +26,27 @@ export interface FakeApi extends JarvisApi {
   turnsBySession: Record<string, TurnRecord[]>;
   /** What voiceStatus() resolves with; set before constructing a view to simulate text-only mode. */
   voice: VoiceStatus;
+  /** Fixture manifest list returned by listPluginManifests(); set before constructing a view. */
+  pluginManifests: PluginManifest[];
+  /** Per-plugin-id config fixture returned by getPluginConfig(id); missing id → empty config. */
+  pluginConfigs: Record<string, PluginConfigDto>;
+  /** What modelsStatus() resolves with; set before constructing a view. */
+  models: ModelsStatus;
+  /** What accountsStatus() resolves with; set before constructing a view. */
+  accounts: AccountsStatus;
+  /** What fetchModels() resolves with. */
+  fetchResult: ModelsFetchResult;
+  /** What pickKeywordFile() resolves with (null = user cancelled). */
+  pickedKeywordFile: string | null;
   calls: {
     sendText: [text: string, backend: BackendId | undefined][];
     setConfig: Partial<AppConfig>[];
     setSecret: [key: string, value: string][];
     minimize: number;
+    pluginSetConfig: [id: string, patch: Record<string, unknown>][];
+    pluginSetSecret: [id: string, key: string, value: string][];
+    pluginAction: [id: string, key: string][];
+    fetchModels: number;
   };
   pushState(s: AssistantState): void;
   pushTranscript(e: TranscriptEvent): void;
@@ -33,6 +54,7 @@ export interface FakeApi extends JarvisApi {
   pushTurn(turn: TurnRecord): void;
   pushConfig(c: AppConfig): void;
   pushMicLevel(level: number): void;
+  pushModelsProgress(line: string): void;
 }
 
 export const FAKE_CONFIG: AppConfig = {
@@ -83,7 +105,22 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     sessions: [],
     turnsBySession: {},
     voice: { enabled: true, reason: null },
-    calls: { sendText: [], setConfig: [], setSecret: [], minimize: 0 },
+    pluginManifests: [],
+    pluginConfigs: {},
+    models: { ok: true },
+    accounts: { claude: { ok: true }, codex: { ok: true } },
+    fetchResult: { ok: true, failed: [] },
+    pickedKeywordFile: null,
+    calls: {
+      sendText: [],
+      setConfig: [],
+      setSecret: [],
+      minimize: 0,
+      pluginSetConfig: [],
+      pluginSetSecret: [],
+      pluginAction: [],
+      fetchModels: 0
+    },
 
     getConfig: () => Promise.resolve(api.config),
     setConfig: (patch) => {
@@ -111,6 +148,28 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
       return Promise.resolve();
     },
     quit: () => Promise.resolve(),
+    listPluginManifests: () => Promise.resolve(api.pluginManifests),
+    getPluginConfig: (id) =>
+      Promise.resolve(api.pluginConfigs[id] ?? { config: {}, secretsSet: [] }),
+    setPluginConfig: (id, patch) => {
+      api.calls.pluginSetConfig.push([id, patch]);
+      return Promise.resolve();
+    },
+    setPluginSecret: (id, key, value) => {
+      api.calls.pluginSetSecret.push([id, key, value]);
+      return Promise.resolve();
+    },
+    pluginAction: (id, key) => {
+      api.calls.pluginAction.push([id, key]);
+      return Promise.resolve();
+    },
+    accountsStatus: () => Promise.resolve(api.accounts),
+    modelsStatus: () => Promise.resolve(api.models),
+    fetchModels: () => {
+      api.calls.fetchModels += 1;
+      return Promise.resolve(api.fetchResult);
+    },
+    pickKeywordFile: () => Promise.resolve(api.pickedKeywordFile),
 
     onStateChanged: (fn) => on('state:changed', fn as Listener),
     onTranscript: (fn) => on('transcript', fn as Listener),
@@ -118,13 +177,15 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     onSessionUpdated: (fn) => on('session:updated', fn as Listener),
     onConfigChanged: (fn) => on('config:changed', fn as Listener),
     onMicLevel: (fn) => on('mic:level', fn as Listener),
+    onModelsProgress: (fn) => on('models:progress', fn as Listener),
 
     pushState: (s) => emit('state:changed', s),
     pushTranscript: (e) => emit('transcript', e),
     pushAgentEvent: (e) => emit('agent:event', e),
     pushTurn: (turn) => emit('session:updated', turn),
     pushConfig: (c) => emit('config:changed', c),
-    pushMicLevel: (level) => emit('mic:level', level)
+    pushMicLevel: (level) => emit('mic:level', level),
+    pushModelsProgress: (line) => emit('models:progress', line)
   };
 
   return api;

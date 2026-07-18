@@ -498,3 +498,67 @@ button {
   color: var(--grey-2);
   font-style: italic;
 }
+
+/* settings-ui: saved tick, rename warning, setup checklist, model download progress */
+
+.saved-tick {
+  position: sticky;
+  top: 0;
+  float: right;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  color: var(--grey-2);
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+  pointer-events: none;
+}
+
+.saved-tick.show {
+  opacity: 1;
+}
+
+.rename-warning {
+  font-style: italic;
+}
+
+.rename-warning a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.setup-checklist ol {
+  list-style: none;
+  margin: 8px 0 4px;
+  padding: 0;
+  counter-reset: setup-step;
+}
+
+.setup-checklist li {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  line-height: 2;
+  color: var(--ink);
+  counter-increment: setup-step;
+}
+
+.setup-checklist li::before {
+  content: counter(setup-step) '. ';
+  color: var(--grey-2);
+}
+
+.setup-checklist li[data-done='true'] {
+  color: var(--grey-2);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.model-progress {
+  border-left: 1px solid var(--grey-1);
+  padding-left: 8px;
+  margin: 6px 0;
+}
+
+.model-progress .status-line {
+  margin: 2px 0;
+}

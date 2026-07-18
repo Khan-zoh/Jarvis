@@ -1,9 +1,10 @@
-import type {
-  AgentEvent,
-  AppConfig,
-  BackendId,
-  SessionSummary,
-  TurnRecord
+import {
+  isDefaultConfig,
+  type AgentEvent,
+  type AppConfig,
+  type BackendId,
+  type SessionSummary,
+  type TurnRecord
 } from '../../shared/types';
 import type { JarvisApi, Unsubscribe } from '../shared/api';
 import { buildSettingsPane, type SettingsPane } from './settings';
@@ -196,6 +197,18 @@ export class MainView {
     void api.getConfig().then((c) => {
       this.applyConfig(c);
       this.setBackend(c.agents.defaultBackend);
+      // First-run (settings-ui task): factory-default config AND missing models → open straight
+      // onto the setup view (settings pane + numbered checklist). Items check off live as the
+      // pane's statuses come in.
+      return api
+        .modelsStatus()
+        .then((models) => {
+          if (isDefaultConfig(c) && !models.ok) {
+            this.settingsPane.setSetupMode(true);
+            this.showSettings(true);
+          }
+        })
+        .catch(() => {});
     });
     void this.refreshSessions(true);
     this.refreshVoiceStatus();
@@ -311,13 +324,19 @@ export class MainView {
     this.transcript.scrollTop = this.transcript.scrollHeight;
   }
 
-  /** Queries voice:status and shows/hides the durable setup notice. */
+  /** Queries voice:status and shows/hides the durable setup notice. Copy voice per
+   * cdd/plan/ui-design.md ("all UI copy lowercase, terse"): "voice off — <reason>". */
   private refreshVoiceStatus(): void {
     void this.api
       .voiceStatus()
       .then((s) => {
         const show = !s.enabled && s.reason !== null && s.reason !== '';
-        this.setupNotice.textContent = show ? (s.reason as string) : '';
+        if (show) {
+          const reason = s.reason as string;
+          this.setupNotice.textContent = `voice off — ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`;
+        } else {
+          this.setupNotice.textContent = '';
+        }
         this.setupNotice.hidden = !show;
       })
       .catch(() => {

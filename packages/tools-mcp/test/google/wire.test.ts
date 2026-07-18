@@ -85,8 +85,9 @@ describe('tools-mcp google wire', () => {
       settings: Array<{ key: string; kind: string }>;
     }>;
     const google = manifest.find((m) => m.id === 'google')!;
-    expect(google.settings.map((s) => s.key)).toEqual(['clientId', 'clientSecret']);
+    expect(google.settings.map((s) => s.key)).toEqual(['clientId', 'clientSecret', 'connect']);
     expect(google.settings.find((s) => s.key === 'clientSecret')!.kind).toBe('secret');
+    expect(google.settings.find((s) => s.key === 'connect')!.kind).toBe('action');
   });
 
   it('a stub tool call returns the setup hint (not connected), not a crash', async () => {

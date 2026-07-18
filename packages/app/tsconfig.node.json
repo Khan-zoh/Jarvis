@@ -8,7 +8,9 @@
     // dist/google/auth.js via the tools-mcp `exports` map (electron-vite externalizes it as a
     // regular dependency — see the googleapis-inlining note in cdd/tasks/wire-and-converse.md).
     "paths": {
-      "@jarvis/tools-mcp/google/auth": ["../tools-mcp/src/google/auth.ts"]
+      "@jarvis/tools-mcp/google/auth": ["../tools-mcp/src/google/auth.ts"],
+      "@jarvis/tools-mcp/loader": ["../tools-mcp/src/loader.ts"],
+      "@jarvis/tools-mcp/pluginConfig": ["../tools-mcp/src/pluginConfig.ts"]
     }
   },
   "include": [
@@ -21,5 +23,5 @@
     "electron.vite.config.ts",
     "vitest.config.ts"
   ],
-  "exclude": ["test/overlay-view.test.ts", "test/main-view.test.ts"]
+  "exclude": ["test/overlay-view.test.ts", "test/main-view.test.ts", "test/settings.test.ts"]
 }
