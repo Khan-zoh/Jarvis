@@ -20,7 +20,11 @@ export function toolsMcpSpec(
     args: [paths.entryJs],
     env: {
       ELECTRON_RUN_AS_NODE: '1',
-      JARVIS_DATA_DIR: paths.dataDir
+      JARVIS_DATA_DIR: paths.dataDir,
+      // Where fetch-models put the embedding model — the brain plugin resolves `<root>/embed/*`
+      // from here because the worker's cwd is not guaranteed to be the repo root. Set by
+      // src/main/index.ts at startup; empty falls back to the plugin's `<cwd>/models` default.
+      JARVIS_MODELS_DIR: process.env['JARVIS_MODELS_DIR'] ?? ''
     }
   };
 }

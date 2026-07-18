@@ -24,6 +24,14 @@ const SYSTEM_TOOLS = [
   'timer_set'
 ];
 const WEB_TOOLS = ['web_search', 'web_fetch'];
+const BRAIN_TOOLS = [
+  'brain_search',
+  'brain_add_note',
+  'brain_append',
+  'brain_read',
+  'brain_recent',
+  'brain_consolidate'
+];
 
 describe('tools-mcp wire', () => {
   let client: Client;
@@ -48,7 +56,7 @@ describe('tools-mcp wire', () => {
   it('tools/list contains every system and web tool (and ping is gone)', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
-    for (const expected of [...SYSTEM_TOOLS, ...WEB_TOOLS]) {
+    for (const expected of [...SYSTEM_TOOLS, ...WEB_TOOLS, ...BRAIN_TOOLS]) {
       expect(names).toContain(expected);
     }
     expect(names).not.toContain('ping');
@@ -84,7 +92,7 @@ describe('tools-mcp wire', () => {
       displayName: string;
       settings: Array<{ key: string; kind: string }>;
     }>;
-    expect(manifest.map((m) => m.id)).toEqual(['system', 'web', 'google']);
+    expect(manifest.map((m) => m.id)).toEqual(['system', 'web', 'google', 'brain']);
     for (const entry of manifest) {
       expect(typeof entry.displayName).toBe('string');
       expect(Array.isArray(entry.settings)).toBe(true);

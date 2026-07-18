@@ -6,6 +6,7 @@ import type {
   AppConfig,
   AssistantState,
   BackendId,
+  CapturedNote,
   ModelsFetchResult,
   ModelsStatus,
   PluginConfigDto,
@@ -46,6 +47,10 @@ export interface JarvisApi {
   modelsStatus(): Promise<ModelsStatus>;
   fetchModels(): Promise<ModelsFetchResult>;
   pickKeywordFile(): Promise<string | null>;
+  /** Recently auto-captured notes (second brain) for the recently-captured strip. */
+  brainRecent(): Promise<CapturedNote[]>;
+  /** Delete a captured note by id (one-click undo). */
+  brainRemove(id: string): Promise<void>;
   onStateChanged(fn: (s: AssistantState) => void): Unsubscribe;
   onTranscript(fn: (e: TranscriptEvent) => void): Unsubscribe;
   onAgentEvent(fn: (e: AgentEvent) => void): Unsubscribe;
@@ -55,6 +60,10 @@ export interface JarvisApi {
   onMicLevel(fn: (level: number) => void): Unsubscribe;
   /** Progress lines streamed while `models:fetch` runs. */
   onModelsProgress(fn: (line: string) => void): Unsubscribe;
+  /** A durable fact was just auto-captured (second brain) — "noted:" toast + strip prepend. */
+  onBrainCaptured(fn: (note: CapturedNote) => void): Unsubscribe;
+  /** A captured note was removed — remove its strip row. */
+  onBrainRemoved(fn: (id: string) => void): Unsubscribe;
 }
 
 /**
@@ -94,13 +103,17 @@ export function buildPreloadApi(ipc: IpcRenderer): JarvisApi {
     modelsStatus: () => ipc.invoke(INVOKE.modelsStatus),
     fetchModels: () => ipc.invoke(INVOKE.modelsFetch),
     pickKeywordFile: () => ipc.invoke(INVOKE.pickKeywordFile),
+    brainRecent: () => ipc.invoke(INVOKE.brainRecent),
+    brainRemove: (id) => ipc.invoke(INVOKE.brainRemove, id),
     onStateChanged: (fn) => subscribe(PUSH.stateChanged, fn),
     onTranscript: (fn) => subscribe(PUSH.transcript, fn),
     onAgentEvent: (fn) => subscribe(PUSH.agentEvent, fn),
     onSessionUpdated: (fn) => subscribe(PUSH.sessionUpdated, fn),
     onConfigChanged: (fn) => subscribe(PUSH.configChanged, fn),
     onMicLevel: (fn) => subscribe(PUSH.micLevel, fn),
-    onModelsProgress: (fn) => subscribe(PUSH.modelsProgress, fn)
+    onModelsProgress: (fn) => subscribe(PUSH.modelsProgress, fn),
+    onBrainCaptured: (fn) => subscribe(PUSH.brainCaptured, fn),
+    onBrainRemoved: (fn) => subscribe(PUSH.brainRemoved, fn)
   };
 }
 

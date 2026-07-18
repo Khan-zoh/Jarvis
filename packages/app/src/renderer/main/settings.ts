@@ -134,8 +134,11 @@ export function deriveSetupChecklist(s: SetupStatuses): ChecklistItem[] {
 /* ------------------------------------------------------------------------------------------ */
 
 /** Plugins whose settings are already rendered by a dedicated, functionally-wired section
- * elsewhere in this pane (see buildPluginSection's doc comment). */
-const PLUGIN_IDS_RENDERED_ELSEWHERE = new Set(['google']);
+ * elsewhere in this pane (see buildPluginSection's doc comment). `brain` is here for the same
+ * reason as `google`: its vault/mode/toggle live in AppConfig.secondBrain (the app-side recall
+ * provider + capture observer read that, not plugins/brain.json), so a dedicated section binds to
+ * config directly; main mirrors those values into plugins/brain.json for the MCP worker's tools. */
+const PLUGIN_IDS_RENDERED_ELSEWHERE = new Set(['google', 'brain']);
 
 interface PluginSectionDeps {
   api: JarvisApi;
@@ -576,6 +579,55 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
     clientSecretInput.placeholder = '•set';
   });
 
+  /* ---- second brain ---- */
+  // Master on/off (AppConfig.secondBrain.enabled): gates recall + auto-capture and the embedding
+  // model download. Enabling takes effect on the next app start (the store/seams are built once
+  // at startup) — noted in the help line.
+  const brainEnabled = document.createElement('input');
+  brainEnabled.type = 'checkbox';
+  brainEnabled.addEventListener('change', () => {
+    if (cfg) patch({ secondBrain: { ...cfg.secondBrain, enabled: brainEnabled.checked } });
+  });
+
+  const brainVault = textInput();
+  brainVault.placeholder = 'D:\\JarvisBrain';
+  brainVault.addEventListener('change', () => {
+    if (cfg) patch({ secondBrain: { ...cfg.secondBrain, vaultDir: brainVault.value.trim() || cfg.secondBrain.vaultDir } });
+  });
+
+  const brainAutoCapture = document.createElement('input');
+  brainAutoCapture.type = 'checkbox';
+  brainAutoCapture.addEventListener('change', () => {
+    if (cfg) patch({ secondBrain: { ...cfg.secondBrain, autoCapture: brainAutoCapture.checked } });
+  });
+
+  const brainRecallMode = document.createElement('select');
+  for (const mode of ['hybrid', 'on-demand', 'proactive'] as const) {
+    const opt = document.createElement('option');
+    opt.value = mode;
+    opt.textContent = mode;
+    brainRecallMode.appendChild(opt);
+  }
+  brainRecallMode.addEventListener('change', () => {
+    if (cfg) {
+      patch({
+        secondBrain: {
+          ...cfg.secondBrain,
+          recallMode: brainRecallMode.value as AppConfig['secondBrain']['recallMode']
+        }
+      });
+    }
+  });
+
+  const brainReindexBtn = textBtn('rebuild search index');
+  brainReindexBtn.addEventListener('click', () => {
+    void api.pluginAction('brain', 'reindex');
+  });
+  const brainConsolidateBtn = textBtn('clean up my brain');
+  brainConsolidateBtn.addEventListener('click', () => {
+    void api.pluginAction('brain', 'consolidate');
+  });
+
   const pluginSections = document.createElement('div');
   pluginSections.className = 'plugin-sections';
 
@@ -613,6 +665,16 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
       field('google client id', clientIdInput),
       field('google client secret', clientSecretInput)
     ),
+    section(
+      'second brain',
+      field('enabled (restart to apply)', brainEnabled),
+      field('vault folder', brainVault),
+      field('auto-capture', brainAutoCapture),
+      field('recall mode', brainRecallMode),
+      brainReindexBtn,
+      brainConsolidateBtn,
+      statusLine('captures durable facts and recalls them later. off the record any time.')
+    ),
     pluginSections
   );
 
@@ -648,6 +710,10 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
     sensitivityRange.value = String(c.voice.sensitivity);
     ttsCheck.checked = c.voice.ttsEnabled;
     picovoiceKeyInput.placeholder = c.voice.picovoiceAccessKey ? '•set' : '';
+    brainEnabled.checked = c.secondBrain.enabled;
+    brainVault.value = c.secondBrain.vaultDir;
+    brainAutoCapture.checked = c.secondBrain.autoCapture;
+    brainRecallMode.value = c.secondBrain.recallMode;
     clientIdInput.value = c.google.clientId;
     clientSecretInput.placeholder = c.google.clientSecret ? '•set' : '';
     if (c.google.connectedEmail) {
