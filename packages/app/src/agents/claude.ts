@@ -1,9 +1,12 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
 import type { AgentEvent, AppConfig, BackendId } from '../shared/types';
 import type { AgentBackend, TurnHandle } from './types';
 import { buildSystemPrompt } from './prompt';
 import { toolsMcpSpec } from './toolsLauncher';
+import { toUnpackedPath } from './unpacked';
 
 /**
  * ClaudeBackend — wraps `@anthropic-ai/claude-agent-sdk` `query()`.
@@ -39,6 +42,40 @@ const ALLOWED_TOOLS = [`mcp__${MCP_SERVER_NAME}`];
 
 /** Bounded per turn (agent-backends.md). */
 const MAX_TURNS = 12;
+
+/**
+ * Resolves the SDK-bundled native Claude Code CLI for this platform, asar-corrected.
+ *
+ * Packaged build (amendments.md A7 smoke finding): the SDK's DEFAULT resolution runs
+ * `createRequire(import.meta.url).resolve(...)` from inside app.asar, yielding an asar-internal
+ * `claude.exe` path that `spawn()` rejects with ENOENT (asar-aware fs makes it LOOK present).
+ * We resolve the same platform package ourselves, substitute the app.asar.unpacked twin
+ * (see unpacked.ts), and pass it as `pathToClaudeCodeExecutable`. In dev this resolves to the
+ * identical exe the SDK default would pick, so passing it is a no-op there.
+ *
+ * Returns null when the platform package is absent (SDK default resolution then applies).
+ */
+export function resolveClaudeCli(): string | null {
+  // Mirrors @anthropic-ai/claude-agent-sdk's platform-package naming. win32-x64 is the shipping
+  // target for Jarvis 0.1; the other entries keep dev-on-other-OS working.
+  const pkgByPlatform: Record<string, string> = {
+    'win32-x64': '@anthropic-ai/claude-agent-sdk-win32-x64',
+    'win32-arm64': '@anthropic-ai/claude-agent-sdk-win32-arm64',
+    'darwin-x64': '@anthropic-ai/claude-agent-sdk-darwin-x64',
+    'darwin-arm64': '@anthropic-ai/claude-agent-sdk-darwin-arm64',
+    'linux-x64': '@anthropic-ai/claude-agent-sdk-linux-x64',
+    'linux-arm64': '@anthropic-ai/claude-agent-sdk-linux-arm64'
+  };
+  const pkg = pkgByPlatform[`${process.platform}-${process.arch}`];
+  if (!pkg) return null;
+  const bin = process.platform === 'win32' ? 'claude.exe' : 'claude';
+  try {
+    const exe = toUnpackedPath(createRequire(import.meta.url).resolve(`${pkg}/${bin}`));
+    return existsSync(exe) ? exe : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Setup message surfaced when the spawned CLI is not logged in. */
 export const AUTH_PROBLEM =
@@ -179,6 +216,10 @@ export class ClaudeBackend implements AgentBackend {
       }
     };
     if (sessionId) options.resume = sessionId; // A9: session continuity.
+    // Packaged build: hand the SDK the asar-corrected bundled CLI (see resolveClaudeCli). When
+    // null (platform package missing) the SDK's own default resolution applies unchanged.
+    const cli = resolveClaudeCli();
+    if (cli) options.pathToClaudeCodeExecutable = cli;
     return options;
   }
 
