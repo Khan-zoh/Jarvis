@@ -144,6 +144,13 @@ if (!gotLock) {
         return null;
       }
       console.log('[main] second brain enabled');
+      // Cold-start ONNX embedder warm-up (amendments deferred item): load the embedding model now,
+      // off the turn path, so the first recall/capture doesn't eat the ONNX session-create latency.
+      void built.warmUp().then(
+        () => console.log('[main] brain embedder warmed up'),
+        (err: unknown) =>
+          console.error(`[main] brain embedder warm-up failed: ${String(err)}`)
+      );
       return built;
     })();
     brainRuntime = brain; // module-scoped handle so will-quit can dispose it

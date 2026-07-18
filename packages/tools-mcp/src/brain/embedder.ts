@@ -213,6 +213,16 @@ export class OnnxEmbedder implements Embedder {
     return this.initPromise;
   }
 
+  /**
+   * Eagerly loads the tokenizer + ONNX session so the first real `embed()` doesn't pay the
+   * cold-start cost (session creation dominates). Idempotent (shares the init promise); safe to
+   * fire-and-forget at app startup when the second brain is enabled (amendments deferred item:
+   * "cold-start ONNX embedder warm-up flag").
+   */
+  async warmUp(): Promise<void> {
+    await this.init();
+  }
+
   async embed(texts: string[]): Promise<Float32Array[]> {
     if (texts.length === 0) return [];
     await this.init();

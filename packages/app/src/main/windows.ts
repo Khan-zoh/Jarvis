@@ -6,6 +6,7 @@ import {
   Menu,
   nativeImage,
   screen,
+  shell,
   Tray
 } from 'electron';
 import type { ConfigStore } from './config';
@@ -70,6 +71,45 @@ function loadRenderer(win: BrowserWindow, view?: 'overlay'): void {
       view ? { query: { view } } : undefined
     );
   }
+}
+
+/**
+ * Resolves the shipped `wakeword-setup.md` doc: packaged it is an extraResource under
+ * `<resourcesPath>/docs/`; in dev it lives at the repo root `docs/` (app path is packages/app).
+ */
+function wakewordDocPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'docs', 'wakeword-setup.md')
+    : join(app.getAppPath(), '..', '..', 'docs', 'wakeword-setup.md');
+}
+
+/**
+ * Security + link hardening for a renderer's webContents: the app is a fixed local page, so it must
+ * never navigate away in-window. External http(s)/mailto links open in the user's default browser;
+ * the settings "how to train a wake word" link (href="docs/wakeword-setup.md") opens the shipped
+ * markdown doc in the OS default handler. Everything else is denied.
+ */
+function wireExternalLinks(webContents: Electron.WebContents): void {
+  const handle = (rawUrl: string): void => {
+    if (/wakeword-setup\.md($|[?#])/.test(rawUrl)) {
+      void shell.openPath(wakewordDocPath());
+      return;
+    }
+    if (/^(https?|mailto):/.test(rawUrl)) {
+      void shell.openExternal(rawUrl);
+    }
+  };
+  // window.open / target=_blank / anchor clicks that would spawn a window.
+  webContents.setWindowOpenHandler(({ url }) => {
+    handle(url);
+    return { action: 'deny' };
+  });
+  // In-window navigations (a plain <a href> click): never leave the app page.
+  webContents.on('will-navigate', (event, url) => {
+    if (webContents.getURL() === url) return; // allow initial load / reload
+    event.preventDefault();
+    handle(url);
+  });
 }
 
 /**
@@ -149,12 +189,23 @@ export class WindowManager {
         preload: join(__dirname, '../preload/index.mjs'),
         contextIsolation: true,
         nodeIntegration: false,
+        // sandbox: true is DESIRED but NOT enabled (amendments deferred item — attempted here).
+        // Electron loads sandboxed preloads through its own CommonJS-only loader; an ESM preload
+        // is unsupported in a sandbox. electron-vite emits the preload as `index.mjs` (ESM, forced
+        // by this package's "type":"module"), so flipping sandbox:true makes the preload fail to
+        // load and `window.jarvis` never gets exposed — the whole IPC bridge dies. Converting the
+        // preload to a CJS artifact under an ESM package is non-trivial (extension/format juggling)
+        // and would put the entire contextBridge surface at risk with no headless way to verify it.
+        // The real boundaries — contextIsolation:true + nodeIntegration:false — are already on, and
+        // the preload is small/trusted. Left off deliberately; revisit if the preload build moves
+        // to CJS. See cdd/plan/amendments.md ("Renderer sandbox: true").
         sandbox: false
       }
     });
     win.setAlwaysOnTop(true, 'screen-saver');
     // Click-through while idle; the pipeline flips this off when the overlay is interactive.
     win.setIgnoreMouseEvents(true);
+    wireExternalLinks(win.webContents);
     loadRenderer(win, 'overlay');
     win.on('closed', () => {
       this.overlay = null;
@@ -199,6 +250,16 @@ export class WindowManager {
         preload: join(__dirname, '../preload/index.mjs'),
         contextIsolation: true,
         nodeIntegration: false,
+        // sandbox: true is DESIRED but NOT enabled (amendments deferred item — attempted here).
+        // Electron loads sandboxed preloads through its own CommonJS-only loader; an ESM preload
+        // is unsupported in a sandbox. electron-vite emits the preload as `index.mjs` (ESM, forced
+        // by this package's "type":"module"), so flipping sandbox:true makes the preload fail to
+        // load and `window.jarvis` never gets exposed — the whole IPC bridge dies. Converting the
+        // preload to a CJS artifact under an ESM package is non-trivial (extension/format juggling)
+        // and would put the entire contextBridge surface at risk with no headless way to verify it.
+        // The real boundaries — contextIsolation:true + nodeIntegration:false — are already on, and
+        // the preload is small/trusted. Left off deliberately; revisit if the preload build moves
+        // to CJS. See cdd/plan/amendments.md ("Renderer sandbox: true").
         sandbox: false
       }
     });
@@ -206,6 +267,7 @@ export class WindowManager {
     win.on('closed', () => {
       this.mainWindow = null;
     });
+    wireExternalLinks(win.webContents);
     loadRenderer(win);
     this.mainWindow = win;
   }
