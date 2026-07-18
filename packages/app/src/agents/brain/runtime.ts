@@ -31,6 +31,9 @@ export interface BrainRuntime {
   forgetLast(): Promise<string | null>;
   reindex(): Promise<{ notes: number }>;
   consolidate(): Promise<ConsolidationReport>;
+  /** Eagerly loads the embedding model so the first recall/capture turn isn't slowed by ONNX
+   * cold-start. Fire-and-forget at startup (amendments deferred: cold-start embedder warm-up). */
+  warmUp(): Promise<void>;
   dispose(): void;
 }
 
@@ -108,6 +111,7 @@ export function createBrainRuntime(deps: BrainRuntimeDeps): BrainRuntime | { una
     },
     reindex: () => store.reindex(),
     consolidate: () => store.consolidate(createConsolidationDistiller(complete)),
+    warmUp: () => embedder.warmUp(),
     dispose: () => {
       try {
         store.close();

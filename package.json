@@ -12,7 +12,11 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "fetch-models": "node scripts/fetch-models.ts",
-    "package": "npm run build && electron-builder --dir --project packages/app --config electron-builder.yml && npm rebuild better-sqlite3"
+    "make-icon": "node scripts/make-icon.mjs",
+    "package": "npm run build && electron-builder --dir --project packages/app --config electron-builder.yml && npm rebuild better-sqlite3",
+    "dist": "npm run build && electron-builder --project packages/app --config electron-builder.yml && npm rebuild better-sqlite3",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "rebuild:electron": "electron-rebuild --only better-sqlite3"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
