@@ -9,6 +9,7 @@ import type { AppConfig } from '../shared/types';
 import type { AgentBackend, TurnHandle } from './types';
 import { buildSystemPrompt } from './prompt';
 import { toolsMcpSpec } from './toolsLauncher';
+import { toUnpackedPath } from './unpacked';
 
 /** The launch spec for the jarvis-tools-mcp stdio server (from toolsMcpSpec). */
 export type ToolsMcpSpec = { command: string; args: string[]; env: Record<string, string> };
@@ -66,9 +67,15 @@ export class CodexBackend implements AgentBackend {
     this.healthCheck = deps.healthCheck ?? defaultHealthCheck;
 
     const createCodex = deps.createCodex ?? ((options?: CodexOptions): Codex => new Codex(options));
+    // Packaged build (amendments.md A7 smoke finding): the SDK's own CLI resolution returns an
+    // app.asar-internal path that spawn() cannot execute (ENOENT), so we always hand it the
+    // asar-corrected bundled-CLI path explicitly. In dev this resolves to the identical exe the
+    // SDK would pick itself, so the override is a no-op there.
+    const bundledCodex = resolveBundledCodex();
     // Per-instance MCP config. `env` deliberately stays at the SDK default (inherits process.env
     // for the codex CLI); the tools server's own env is scoped inside mcp_servers.jarvisTools.env.
     this.codex = createCodex({
+      ...(bundledCodex ? { codexPathOverride: bundledCodex } : {}),
       config: {
         mcp_servers: {
           jarvisTools: {
@@ -225,7 +232,9 @@ export function resolveBundledCodex(): string | null {
   const require = createRequire(import.meta.url);
   try {
     const pkgJson = require.resolve(`${pkgByTarget[target]}/package.json`);
-    const exe = join(dirname(pkgJson), 'vendor', target, 'bin', binName);
+    // Packaged: require.resolve answers with the app.asar-internal path; the exe is only
+    // executable at its app.asar.unpacked twin (see unpacked.ts). Dev: no-op.
+    const exe = toUnpackedPath(join(dirname(pkgJson), 'vendor', target, 'bin', binName));
     return existsSync(exe) ? exe : null;
   } catch {
     return null;

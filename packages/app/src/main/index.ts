@@ -16,7 +16,9 @@ import { WindowManager } from './windows';
 import { registerInvokeHandlers, type IpcDeps } from './ipc';
 import { setLaunchOnStartup } from './autostart';
 import { resolveModelPaths } from './modelPaths';
-import { toolsMcpEntry } from './paths';
+import { modelsRoot, toolsMcpEntry } from './paths';
+import { toolsMcpSpec } from '../agents/toolsLauncher';
+import { defaultHealthCheck } from '../agents/codex';
 import { Conductor } from './conductor';
 import { VoiceManager } from './voiceManager';
 import type { VoiceStatus } from '../shared/types';
@@ -44,6 +46,17 @@ interface VoiceRuntime {
   pipeline: VoicePipeline;
   capture: AudioCapture;
   dispose: () => void;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Startup step 0: optional userData override (packaging smoke / tests — amendments.md A7 item 5:
+// launch the packaged exe against a clean throwaway profile). Must run BEFORE the single-instance
+// lock below, because the lock file lives under userData — this also keeps a smoke instance from
+// colliding with a normally-installed running Jarvis.
+// ---------------------------------------------------------------------------------------------
+const userDataOverride = process.env['JARVIS_USER_DATA_DIR'];
+if (userDataOverride) {
+  app.setPath('userData', userDataOverride);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -90,6 +103,14 @@ if (!gotLock) {
     // Let the disposable tools-mcp worker resolve the embedding model (brain plugin) — its cwd is
     // not guaranteed to be the repo root, so it reads JARVIS_MODELS_DIR (see toolsLauncher).
     process.env['JARVIS_MODELS_DIR'] = modelsRootDir();
+
+    // Startup tools-mcp health check (A7 item 5 + A9): spawns a disposable worker and issues a
+    // real MCP tools/list, so a broken packaged layout (natives, asar, entry path) is loudly
+    // visible in the logs at every startup instead of surfacing mid-turn. Fire-and-forget.
+    void defaultHealthCheck(toolsMcpSpec(config.get(), toolsPaths)).then((r) => {
+      if (r.ok) console.log('[main] tools-mcp health check ok (tools/list non-empty)');
+      else console.error(`[main] tools-mcp health check FAILED: ${r.problem}`);
+    });
 
     // Second brain (cdd/plan/second-brain.md, amendments.md A8). The app owns ONE shared
     // BrainStore instance (the tools-mcp brain plugin opens the SAME vault/index in its own
@@ -331,6 +352,9 @@ if (!gotLock) {
       }
     };
     registerInvokeHandlers(deps);
+    // Startup milestone log (A7 item 5): the packaged smoke greps for this line as proof that
+    // startup got past config/backends/IPC wiring without throwing.
+    console.log('[main] ipc handlers registered');
 
     // Global hotkey toggles the main window (push-to-talk text bar hookup arrives with
     // wire-and-converse; for now it opens/focuses the window).
@@ -390,10 +414,11 @@ if (!gotLock) {
   });
 }
 
-/** Models root: `<cwd>/models` (repo root in dev), matching scripts/fetch-models.ts and
- * resolveModelPaths' own default. Centralized here for the packaging task to re-point later. */
+/** Models root — dev: `<cwd>/models` (repo root); packaged: `<userData>/models`;
+ * `JARVIS_MODELS_DIR` env always wins. Contract decided by the A7 packaging smoke — see
+ * `modelsRoot()` in src/main/paths.ts for the rationale. */
 function modelsRootDir(): string {
-  return join(process.cwd(), 'models');
+  return modelsRoot();
 }
 
 /**

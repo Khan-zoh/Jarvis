@@ -1,0 +1,45 @@
+# electron-builder config for the A7 packaging SMOKE (cdd/plan/amendments.md §A7).
+# Scope: prove the packaged-Electron native/ASAR/spawn risks with a `--dir` (unpacked) build.
+# NOT the full installer — NSIS + signing + first-run polish belong to packaging-hardening.
+#
+# Every non-obvious choice below is commented because A7 requires the packaging decisions to be
+# documented at the point of decision.
+appId: com.jarvis.assistant
+productName: Jarvis
+
+directories:
+  # Keep the packaged tree OUT of the app package dir (it is gitignored at repo root via dist/).
+  output: ../../dist-package
+
+# ASAR on: the app + its pure-JS dependency tree (including the @jarvis/tools-mcp workspace package,
+# collected via the hoisted-monorepo symlink) are packed into resources/app.asar.
+asar: true
+
+# What goes into the app.asar (node_modules production deps are collected automatically by
+# electron-builder from the hoisted root node_modules + the @jarvis/* workspace symlinks).
+files:
+  - out/**            # electron-vite output: main/index.js, preload/index.mjs, renderer/**
+  - assets/**         # wake.wav, tray icons (tray icon is actually embedded base64, but keep assets)
+  - package.json
+
+# Native modules CANNOT be loaded from inside an asar archive — electron-builder marks these paths
+# "unpacked" in the asar header and drops the real files into resources/app.asar.unpacked/. The
+# module loader (main process AND ELECTRON_RUN_AS_NODE children) transparently redirects the .node
+# reads to the unpacked copy, so require() specifiers are unchanged. We unpack ONLY the native
+# packages; their pure-JS deps (bindings, etc.) stay in the asar and resolve normally through the
+# asar-addressed path.
+#   - better-sqlite3       -> brain store (tools-mcp worker process)
+#   - onnxruntime-node     -> VAD (main) + brain embedder (tools-mcp worker); ~259 MB, has .dll+.node
+#   - @picovoice/porcupine -> wake word (main process)
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+  - "**/node_modules/onnxruntime-node/**"
+  - "**/node_modules/@picovoice/**"
+
+win:
+  target:
+    - target: dir
+      arch:
+        - x64
+  # No signing for the smoke (unsigned --dir is sufficient to prove load/spawn behavior).
+  signAndEditExecutable: false
