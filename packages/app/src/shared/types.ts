@@ -73,3 +73,115 @@ export interface VoiceStatus {
   /** Why voice is off (for the settings/setup UI), or null when enabled. */
   reason: string | null;
 }
+
+/**
+ * Renderer-facing mirror of `@jarvis/tools-mcp`'s `PluginSetting` (src/plugin.ts). Duplicated
+ * here — same pattern as `JarvisApi` in renderer/shared/api.ts — because the renderer build must
+ * never import a package that pulls in Node/Electron internals. Keep the `kind` union in sync by
+ * hand; the settings UI renders one control per kind and ignores kinds it does not recognize.
+ */
+export interface PluginSettingDto {
+  key: string;
+  label: string;
+  kind: 'text' | 'secret' | 'toggle' | 'number' | 'action';
+  placeholder?: string;
+  help?: string;
+}
+
+/** One entry per loaded tools-mcp plugin — the settings UI renders one section per manifest,
+ * fields from `settings` (amendments.md's deferred "generic plugin settings IPC"). */
+export interface PluginManifest {
+  id: string;
+  displayName: string;
+  settings: PluginSettingDto[];
+}
+
+/** Result of `plugin:getConfig` — the plugin's non-secret config plus which secret keys are
+ * currently set (never their values). */
+export interface PluginConfigDto {
+  config: Record<string, unknown>;
+  secretsSet: string[];
+}
+
+/** One backend's `init()` probe result (agents/types.ts `AgentBackend.init`), as returned per
+ * backend by the `accounts:status` invoke. */
+export interface BackendProbe {
+  ok: boolean;
+  problem?: string;
+}
+
+/** Result of the `accounts:status` invoke: both backends probed via their real `init()`. */
+export interface AccountsStatus {
+  claude: BackendProbe;
+  codex: BackendProbe;
+}
+
+/** Result of the `models:status` invoke — `resolveModelPaths` distilled for the settings UI. */
+export type ModelsStatus = { ok: true } | { ok: false; missing: string[] };
+
+/** Result of the `models:fetch` invoke (progress arrives separately on `models:progress`). */
+export interface ModelsFetchResult {
+  ok: boolean;
+  /** Names of specs that failed to fetch (empty when ok). */
+  failed: string[];
+}
+
+/**
+ * Porcupine's builtin wake keywords, mirrored from `@picovoice/porcupine-node`'s
+ * `BuiltinKeyword` enum (src/builtin_keywords.ts, stable since 2020). Mirrored — not imported —
+ * because the renderer build must never pull in a native-addon package; the wakeword module
+ * resolves these case-insensitively against the real enum at init time, so an entry here is
+ * valid iff it appears there.
+ */
+export const PORCUPINE_BUILTIN_KEYWORDS = [
+  'alexa',
+  'americano',
+  'blueberry',
+  'bumblebee',
+  'computer',
+  'grapefruit',
+  'grasshopper',
+  'hey google',
+  'hey siri',
+  'jarvis',
+  'ok google',
+  'picovoice',
+  'porcupine',
+  'terminator'
+] as const;
+
+/**
+ * The factory-default AppConfig. Lives in shared/ (pure data, no Electron) so BOTH the main
+ * process (ConfigStore's baseline) and the renderer (first-run detection for the setup
+ * checklist) use the same source of truth.
+ */
+export const DEFAULT_APP_CONFIG: AppConfig = {
+  agentName: 'Jarvis',
+  voice: {
+    picovoiceAccessKey: '',
+    builtinKeyword: 'jarvis',
+    customKeywordPath: null,
+    sensitivity: 0.6,
+    inputDeviceId: null,
+    listenTimeoutMs: 8000,
+    sttModelPath: '',
+    ttsVoicePath: '',
+    ttsEnabled: false
+  },
+  agents: {
+    defaultBackend: 'claude',
+    claude: { systemPromptExtra: '' },
+    codex: { model: null }
+  },
+  google: { clientId: '', clientSecret: '', connectedEmail: null },
+  ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' }
+};
+
+/**
+ * True when `c` is indistinguishable from the factory default. Works on the REDACTED config the
+ * renderer sees, because an unset secret redacts to `''` — exactly the default value — while a
+ * set one redacts to `'•set'` (≠ default), which is the correct "not default anymore" signal.
+ */
+export function isDefaultConfig(c: AppConfig): boolean {
+  return JSON.stringify(c) === JSON.stringify(DEFAULT_APP_CONFIG);
+}

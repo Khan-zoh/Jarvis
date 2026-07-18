@@ -1,8 +1,13 @@
 import type {
+  AccountsStatus,
   AgentEvent,
   AppConfig,
   AssistantState,
   BackendId,
+  ModelsFetchResult,
+  ModelsStatus,
+  PluginConfigDto,
+  PluginManifest,
   SessionSummary,
   TranscriptEvent,
   TurnRecord,
@@ -37,12 +42,29 @@ export interface JarvisApi {
   /** Minimizes the main window (titlebar minimize glyph → `window:minimize` invoke). */
   minimize(): Promise<void>;
   quit(): Promise<void>;
+  /** One manifest per loaded tools-mcp plugin (settings UI extensibility payoff). */
+  listPluginManifests(): Promise<PluginManifest[]>;
+  getPluginConfig(id: string): Promise<PluginConfigDto>;
+  setPluginConfig(id: string, patch: Record<string, unknown>): Promise<void>;
+  setPluginSecret(id: string, key: string, value: string): Promise<void>;
+  /** Runs a plugin-declared `action`-kind setting (rendered as a button). */
+  pluginAction(id: string, key: string): Promise<void>;
+  /** Both backends' init() probe results with fix-hint copy. */
+  accountsStatus(): Promise<AccountsStatus>;
+  /** Whether the voice-stack models/binaries are all on disk. */
+  modelsStatus(): Promise<ModelsStatus>;
+  /** Runs fetchModels in the main process; watch onModelsProgress for streamed lines. */
+  fetchModels(): Promise<ModelsFetchResult>;
+  /** Open-file dialog for a custom Porcupine `.ppn` keyword; null on cancel. */
+  pickKeywordFile(): Promise<string | null>;
   onStateChanged(fn: (s: AssistantState) => void): Unsubscribe;
   onTranscript(fn: (e: TranscriptEvent) => void): Unsubscribe;
   onAgentEvent(fn: (e: AgentEvent) => void): Unsubscribe;
   onSessionUpdated(fn: (turn: TurnRecord) => void): Unsubscribe;
   onConfigChanged(fn: (c: AppConfig) => void): Unsubscribe;
   onMicLevel?(fn: (level: number) => void): Unsubscribe;
+  /** Progress lines streamed while models:fetch runs. */
+  onModelsProgress(fn: (line: string) => void): Unsubscribe;
 }
 
 declare global {

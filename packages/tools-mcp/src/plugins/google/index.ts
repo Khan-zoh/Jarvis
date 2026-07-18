@@ -56,6 +56,15 @@ export function createGooglePlugin(deps: Partial<GooglePluginDeps> = {}): ToolPl
         label: 'Google client secret',
         kind: 'secret',
         help: 'The secret paired with the client ID above. Stored encrypted (DPAPI).'
+      },
+      {
+        // Rendered as a button by the settings UI's generic `action` mechanism; the app routes
+        // pluginAction('google','connect') to its existing google:connect / google:disconnect
+        // handlers (connect when no account is linked, disconnect when one is).
+        key: 'connect',
+        label: 'connect / disconnect google',
+        kind: 'action',
+        help: 'Sign the assistant into (or out of) your Google account in a browser window.'
       }
     ],
     async init(ctx) {

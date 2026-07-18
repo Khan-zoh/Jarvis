@@ -1,10 +1,15 @@
 import { contextBridge, ipcRenderer, type IpcRenderer } from 'electron';
 import { INVOKE, PUSH } from '../main/ipc';
 import type {
+  AccountsStatus,
   AgentEvent,
   AppConfig,
   AssistantState,
   BackendId,
+  ModelsFetchResult,
+  ModelsStatus,
+  PluginConfigDto,
+  PluginManifest,
   SessionSummary,
   TranscriptEvent,
   TurnRecord,
@@ -32,6 +37,15 @@ export interface JarvisApi {
   voiceStatus(): Promise<VoiceStatus>;
   minimize(): Promise<void>;
   quit(): Promise<void>;
+  listPluginManifests(): Promise<PluginManifest[]>;
+  getPluginConfig(id: string): Promise<PluginConfigDto>;
+  setPluginConfig(id: string, patch: Record<string, unknown>): Promise<void>;
+  setPluginSecret(id: string, key: string, value: string): Promise<void>;
+  pluginAction(id: string, key: string): Promise<void>;
+  accountsStatus(): Promise<AccountsStatus>;
+  modelsStatus(): Promise<ModelsStatus>;
+  fetchModels(): Promise<ModelsFetchResult>;
+  pickKeywordFile(): Promise<string | null>;
   onStateChanged(fn: (s: AssistantState) => void): Unsubscribe;
   onTranscript(fn: (e: TranscriptEvent) => void): Unsubscribe;
   onAgentEvent(fn: (e: AgentEvent) => void): Unsubscribe;
@@ -39,6 +53,8 @@ export interface JarvisApi {
   onConfigChanged(fn: (c: AppConfig) => void): Unsubscribe;
   /** Mic input level 0..1 per frame while listening (overlay listening bars). */
   onMicLevel(fn: (level: number) => void): Unsubscribe;
+  /** Progress lines streamed while `models:fetch` runs. */
+  onModelsProgress(fn: (line: string) => void): Unsubscribe;
 }
 
 /**
@@ -69,12 +85,22 @@ export function buildPreloadApi(ipc: IpcRenderer): JarvisApi {
     voiceStatus: () => ipc.invoke(INVOKE.voiceStatus),
     minimize: () => ipc.invoke(INVOKE.windowMinimize),
     quit: () => ipc.invoke(INVOKE.appQuit),
+    listPluginManifests: () => ipc.invoke(INVOKE.pluginListManifests),
+    getPluginConfig: (id) => ipc.invoke(INVOKE.pluginGetConfig, id),
+    setPluginConfig: (id, patch) => ipc.invoke(INVOKE.pluginSetConfig, id, patch),
+    setPluginSecret: (id, key, value) => ipc.invoke(INVOKE.pluginSetSecret, id, key, value),
+    pluginAction: (id, key) => ipc.invoke(INVOKE.pluginAction, id, key),
+    accountsStatus: () => ipc.invoke(INVOKE.accountsStatus),
+    modelsStatus: () => ipc.invoke(INVOKE.modelsStatus),
+    fetchModels: () => ipc.invoke(INVOKE.modelsFetch),
+    pickKeywordFile: () => ipc.invoke(INVOKE.pickKeywordFile),
     onStateChanged: (fn) => subscribe(PUSH.stateChanged, fn),
     onTranscript: (fn) => subscribe(PUSH.transcript, fn),
     onAgentEvent: (fn) => subscribe(PUSH.agentEvent, fn),
     onSessionUpdated: (fn) => subscribe(PUSH.sessionUpdated, fn),
     onConfigChanged: (fn) => subscribe(PUSH.configChanged, fn),
-    onMicLevel: (fn) => subscribe(PUSH.micLevel, fn)
+    onMicLevel: (fn) => subscribe(PUSH.micLevel, fn),
+    onModelsProgress: (fn) => subscribe(PUSH.modelsProgress, fn)
   };
 }
 

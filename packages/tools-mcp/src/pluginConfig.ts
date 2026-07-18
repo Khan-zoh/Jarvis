@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PluginContext } from './plugin.js';
 
@@ -95,6 +95,45 @@ export function readPluginSecrets(
     if (typeof v === 'string') out[k] = v;
   }
   return out;
+}
+
+/**
+ * Atomically writes `data` to `file` (temp file in the same directory, then rename — amendments.md
+ * "Session/config writes: atomic temp+rename"). Creates the parent directory if needed.
+ */
+function atomicWrite(file: string, data: string | Buffer): void {
+  mkdirSync(join(file, '..'), { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, file);
+}
+
+/**
+ * Merges `patch` into `JARVIS_DATA_DIR/plugins/<id>.json` and writes it atomically. Non-secret
+ * config only — never call with a secret-kind value (use `writePluginSecret` instead).
+ */
+export function writePluginConfig(dataDir: string, id: string, patch: Record<string, unknown>): void {
+  const current = readPluginConfig(dataDir, id);
+  const merged = { ...current, ...patch };
+  atomicWrite(join(dataDir, 'plugins', `${id}.json`), JSON.stringify(merged, null, 2));
+}
+
+/**
+ * Merges a single `key`/`value` into `JARVIS_DATA_DIR/plugins/<id>.secrets`, re-encrypting the
+ * whole per-plugin secret map with DPAPI and writing it atomically. Reuses the same codec
+ * `readPluginSecrets` decrypts with.
+ */
+export function writePluginSecret(
+  dataDir: string,
+  id: string,
+  key: string,
+  value: string,
+  runPs: SyncPsRunner = defaultSyncPs
+): void {
+  const current = readPluginSecrets(dataDir, id, runPs);
+  const merged = { ...current, [key]: value };
+  const blob = dpapiEncrypt(JSON.stringify(merged), runPs);
+  atomicWrite(join(dataDir, 'plugins', `${id}.secrets`), blob);
 }
 
 export interface PluginLogger {

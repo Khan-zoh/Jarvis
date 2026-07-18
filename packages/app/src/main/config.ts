@@ -4,7 +4,7 @@ import { join } from 'node:path';
 // `safeStorage` is only dereferenced by the default (production) codec; tests inject a fake codec
 // so this import is never touched in a headless run.
 import { safeStorage } from 'electron';
-import type { AppConfig } from '../shared/types';
+import { DEFAULT_APP_CONFIG, type AppConfig } from '../shared/types';
 
 /**
  * The subset of Electron's `safeStorage` that ConfigStore relies on. Injecting it via the
@@ -44,27 +44,9 @@ const SECRET_SLOTS: Record<SecretKey, SecretSlot> = {
 
 const SECRET_KEYS = Object.keys(SECRET_SLOTS) as SecretKey[];
 
-export const DEFAULT_CONFIG: AppConfig = {
-  agentName: 'Jarvis',
-  voice: {
-    picovoiceAccessKey: '',
-    builtinKeyword: 'jarvis',
-    customKeywordPath: null,
-    sensitivity: 0.6,
-    inputDeviceId: null,
-    listenTimeoutMs: 8000,
-    sttModelPath: '',
-    ttsVoicePath: '',
-    ttsEnabled: false
-  },
-  agents: {
-    defaultBackend: 'claude',
-    claude: { systemPromptExtra: '' },
-    codex: { model: null }
-  },
-  google: { clientId: '', clientSecret: '', connectedEmail: null },
-  ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' }
-};
+/** The factory default. Moved to shared/types.ts (settings-ui: the renderer needs it for
+ * first-run detection); re-exported here so existing main-process imports keep working. */
+export const DEFAULT_CONFIG: AppConfig = DEFAULT_APP_CONFIG;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

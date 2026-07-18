@@ -588,11 +588,13 @@ const ALL_GOOGLE_TOOLS = [
 ];
 
 describe('createGooglePlugin', () => {
-  it('declares clientId (text) + clientSecret (secret) settings', () => {
+  it('declares clientId (text) + clientSecret (secret) + connect (action) settings', () => {
     const plugin = createGooglePlugin();
     expect(plugin.id).toBe('google');
     const keys = (plugin.settings ?? []).map((s) => `${s.key}:${s.kind}`);
-    expect(keys).toEqual(['clientId:text', 'clientSecret:secret']);
+    // The `connect` action routes through the app's generic plugin:action handler
+    // (settings-ui task) to the existing google:connect / google:disconnect flows.
+    expect(keys).toEqual(['clientId:text', 'clientSecret:secret', 'connect:action']);
   });
 
   it('when connected, returns the full real tool surface', async () => {
