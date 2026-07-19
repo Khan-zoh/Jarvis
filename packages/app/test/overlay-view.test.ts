@@ -74,6 +74,8 @@ describe('OverlayView', () => {
     expect(live().classList.contains('partial')).toBe(false);
 
     api.pushState('speaking');
+    api.pushAgentEvent({ kind: 'status_update', text: 'checking your calendar' });
+    expect(live().textContent).toBe('update — checking your calendar');
     api.pushAgentEvent({ kind: 'text_delta', text: 'three things ' });
     api.pushAgentEvent({ kind: 'text_delta', text: 'tomorrow' });
     expect(live().textContent).toBe('three things tomorrow');

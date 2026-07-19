@@ -46,7 +46,9 @@ export function renderTranscript(turns: TurnRecord[]): DocumentFragment {
     assistant.className = 'turn-assistant';
     assistant.textContent = turn.assistantText;
 
-    article.append(user, assistant);
+    article.appendChild(user);
+    appendUpdates(article, turn.assistantUpdates ?? []);
+    article.appendChild(assistant);
     for (const tool of turn.tools) {
       const line = document.createElement('p');
       line.className = 'turn-tool';
@@ -56,6 +58,24 @@ export function renderTranscript(turns: TurnRecord[]): DocumentFragment {
     frag.appendChild(article);
   }
   return frag;
+}
+
+function appendUpdates(parent: HTMLElement, updates: string[]): void {
+  if (updates.length === 0) return;
+  const container = document.createElement('div');
+  container.className = 'turn-updates';
+  for (const update of updates) appendUpdate(container, update);
+  parent.appendChild(container);
+}
+
+function appendUpdate(parent: HTMLElement, text: string): void {
+  const line = document.createElement('p');
+  line.className = 'turn-update';
+  const label = document.createElement('span');
+  label.className = 'turn-update-label';
+  label.textContent = 'update — ';
+  line.append(label, document.createTextNode(text));
+  parent.appendChild(line);
 }
 
 /**
@@ -74,6 +94,7 @@ export class MainView {
   private liveTurn: {
     el: HTMLElement;
     assistant: HTMLParagraphElement;
+    updates: HTMLDivElement;
     text: string;
     lastTool: HTMLParagraphElement | null;
   } | null = null;
@@ -303,10 +324,12 @@ export class MainView {
     user.append(prefix, document.createTextNode(userText));
     const assistant = document.createElement('p');
     assistant.className = 'turn-assistant';
-    el.append(user, assistant);
+    const updates = document.createElement('div');
+    updates.className = 'turn-updates';
+    el.append(user, updates, assistant);
     this.transcript.appendChild(el);
     this.transcript.scrollTop = this.transcript.scrollHeight;
-    this.liveTurn = { el, assistant, text: '', lastTool: null };
+    this.liveTurn = { el, assistant, updates, text: '', lastTool: null };
   }
 
   private clearLiveTurn(): void {
@@ -320,6 +343,9 @@ export class MainView {
     const live = this.liveTurn;
     if (!live) return;
     switch (e.kind) {
+      case 'status_update':
+        appendUpdate(live.updates, e.text);
+        break;
       case 'text_delta':
         live.text += e.text;
         live.assistant.textContent = live.text;

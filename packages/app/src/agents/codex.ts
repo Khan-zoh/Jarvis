@@ -41,7 +41,8 @@ export interface CodexBackendDeps {
  *  - Codex threads have no system-prompt option, so buildSystemPrompt output is PREPENDED to the
  *    first turn's input of each NEW thread. Resumed threads already carry it in their history.
  *  - Codex emits NO incremental text deltas: each `item.completed:agent_message` carries the full
- *    text and maps to ONE `text_delta`. `turn.completed` → `done`.
+ *    text. Commentary maps to `status_update`; the final answer maps to ONE `text_delta`.
+ *    `turn.completed` → `done`.
  *  - The Codex shell tool cannot be removed; containment is `sandboxMode:'read-only'` +
  *    `approvalPolicy:'never'` (verified: model file-write attempts fail "filesystem is read-only").
  *  - A silent MCP child startup failure is invisible to the turn stream, so `init()` health-checks
@@ -185,8 +186,16 @@ export class CodexBackend implements AgentBackend {
             case 'item.completed':
               if (ev.item.type === 'agent_message') {
                 // A9: full text in one shot — one text_delta, no incremental deltas exist.
-                onEvent({ kind: 'text_delta', text: ev.item.text });
-                finalText += ev.item.text;
+                // The CLI protocol includes `phase` even though this SDK version's public type
+                // omits it. Keep commentary separate from the completed answer. An absent phase
+                // remains a final answer for backwards compatibility.
+                const phase = (ev.item as typeof ev.item & { phase?: unknown }).phase;
+                if (phase === 'commentary') {
+                  onEvent({ kind: 'status_update', text: ev.item.text });
+                } else {
+                  onEvent({ kind: 'text_delta', text: ev.item.text });
+                  finalText = ev.item.text;
+                }
               } else if (ev.item.type === 'mcp_tool_call') {
                 onEvent({
                   kind: 'tool_end',
