@@ -101,6 +101,8 @@ export class MainView {
 
   private readonly agentName: HTMLSpanElement;
   private readonly settingsBtn: HTMLButtonElement;
+  private readonly conversationTitle: HTMLHeadingElement;
+  private readonly stateText: HTMLSpanElement;
   private readonly setupNotice: HTMLParagraphElement;
   private readonly sessionList: HTMLUListElement;
   private readonly transcript: HTMLDivElement;
@@ -126,16 +128,37 @@ export class MainView {
     /* ---- titlebar ---- */
     const titlebar = document.createElement('header');
     titlebar.className = 'titlebar';
+    const brand = document.createElement('div');
+    brand.className = 'brand';
+    const brandMark = document.createElement('span');
+    brandMark.className = 'brand-mark';
+    brandMark.textContent = 'J';
+    const brandCopy = document.createElement('div');
+    brandCopy.className = 'brand-copy';
     this.agentName = document.createElement('span');
     this.agentName.className = 'agent-name';
     this.agentName.textContent = 'jarvis';
+    const brandTagline = document.createElement('span');
+    brandTagline.className = 'brand-tagline';
+    brandTagline.textContent = 'second brain';
+    brandCopy.append(this.agentName, brandTagline);
+    brand.append(brandMark, brandCopy);
+
+    const statePill = document.createElement('div');
+    statePill.className = 'state-pill';
+    const stateDot = document.createElement('span');
+    stateDot.className = 'state-dot';
+    this.stateText = document.createElement('span');
+    this.stateText.className = 'state-text';
+    this.stateText.textContent = 'ready';
+    statePill.append(stateDot, this.stateText);
 
     const actions = document.createElement('div');
     actions.className = 'titlebar-actions';
     this.settingsBtn = document.createElement('button');
     this.settingsBtn.type = 'button';
     this.settingsBtn.className = 'btn-settings';
-    this.settingsBtn.textContent = 'settings';
+    this.settingsBtn.textContent = 'preferences';
     this.settingsBtn.addEventListener('click', () => {
       this.showSettings(!this.settingsShown);
     });
@@ -156,16 +179,57 @@ export class MainView {
       window.close(); // main process decides hide-vs-quit
     });
     actions.append(this.settingsBtn, minBtn, closeBtn);
-    titlebar.append(this.agentName, actions);
+    titlebar.append(brand, statePill, actions);
 
-    /* ---- history pane ---- */
-    const history = document.createElement('section');
-    history.className = 'history';
+    /* ---- conversation rail ---- */
+    const sidebar = document.createElement('aside');
+    sidebar.className = 'sidebar';
+    const sidebarHead = document.createElement('div');
+    sidebarHead.className = 'sidebar-head';
+    const sidebarLabel = document.createElement('span');
+    sidebarLabel.className = 'sidebar-label';
+    sidebarLabel.textContent = 'conversations';
+    const newThread = document.createElement('button');
+    newThread.type = 'button';
+    newThread.className = 'btn-new-thread';
+    newThread.innerHTML = '<span aria-hidden="true">＋</span> new conversation';
+    newThread.addEventListener('click', () => {
+      void this.api.newSession().then(async () => {
+        this.activeSession = null;
+        this.transcript.textContent = '';
+        this.conversationTitle.textContent = 'new conversation';
+        await this.refreshSessions(true);
+        this.input.focus();
+      });
+    });
+    sidebarHead.append(sidebarLabel, newThread);
 
     const sessions = document.createElement('nav');
     sessions.className = 'sessions';
     this.sessionList = document.createElement('ul');
     sessions.appendChild(this.sessionList);
+    const privacy = document.createElement('div');
+    privacy.className = 'sidebar-foot';
+    privacy.innerHTML = '<span class="privacy-dot"></span><span>local memory</span>';
+    sidebar.append(sidebarHead, sessions, privacy);
+
+    /* ---- conversation workspace ---- */
+    const history = document.createElement('section');
+    history.className = 'history';
+    const conversationHead = document.createElement('header');
+    conversationHead.className = 'conversation-head';
+    const headingGroup = document.createElement('div');
+    headingGroup.className = 'conversation-heading';
+    const eyebrow = document.createElement('span');
+    eyebrow.className = 'conversation-eyebrow';
+    eyebrow.textContent = 'active conversation';
+    this.conversationTitle = document.createElement('h1');
+    this.conversationTitle.textContent = 'new conversation';
+    headingGroup.append(eyebrow, this.conversationTitle);
+    const shortcut = document.createElement('span');
+    shortcut.className = 'conversation-shortcut';
+    shortcut.textContent = 'esc to stop';
+    conversationHead.append(headingGroup, shortcut);
 
     // Durable setup notice (voice disabled → text-only mode). NOT the 3s transient error path:
     // it stays until the underlying cause is fixed (cdd/plan/amendments.md, error-policy nuance).
@@ -190,6 +254,9 @@ export class MainView {
 
     const bar = document.createElement('form');
     bar.className = 'command-bar';
+    const composerLead = document.createElement('span');
+    composerLead.className = 'composer-mark';
+    composerLead.textContent = 'J';
     this.input = document.createElement('input');
     this.input.className = 'command-input';
     this.input.type = 'text';
@@ -210,20 +277,32 @@ export class MainView {
     this.backendCodex = document.createElement('span');
     this.backendCodex.textContent = 'codex';
     backendSwitch.append(this.backendClaude, sep, this.backendCodex);
-    bar.append(this.input, backendSwitch);
+    const send = document.createElement('button');
+    send.type = 'submit';
+    send.className = 'btn-send';
+    send.title = 'send';
+    send.setAttribute('aria-label', 'send message');
+    send.textContent = '↑';
+    bar.append(composerLead, this.input, backendSwitch, send);
     bar.addEventListener('submit', (e) => {
       e.preventDefault();
       this.submit();
     });
 
-    history.append(sessions, this.setupNotice, this.transcript, this.capturedSection, bar);
+    const composerDock = document.createElement('div');
+    composerDock.className = 'composer-dock';
+    const composerHint = document.createElement('div');
+    composerHint.className = 'composer-hint';
+    composerHint.innerHTML = '<span>tab switches model</span><span>voice ready on “jarvis”</span>';
+    composerDock.append(this.capturedSection, bar, composerHint);
+    history.append(conversationHead, this.setupNotice, this.transcript, composerDock);
 
     /* ---- settings pane ---- */
     this.settingsPane = buildSettingsPane(api);
 
     const panes = document.createElement('div');
     panes.className = 'panes';
-    panes.append(history, this.settingsPane.el);
+    panes.append(sidebar, history, this.settingsPane.el);
 
     app.append(titlebar, panes);
     root.appendChild(app);
@@ -263,6 +342,9 @@ export class MainView {
         // The persisted record replaces the live streaming rendition of the same turn.
         this.clearLiveTurn();
         this.transcript.appendChild(renderTranscript([turn]));
+        if (this.conversationTitle.textContent === 'new conversation') {
+          this.conversationTitle.textContent = turn.userText.toLowerCase();
+        }
         this.transcript.scrollTop = this.transcript.scrollHeight;
         void this.refreshSessions(false);
       }),
@@ -276,6 +358,10 @@ export class MainView {
       }),
       api.onAgentEvent((e) => {
         this.onAgentEvent(e);
+      }),
+      api.onStateChanged((state) => {
+        this.stateText.textContent = state === 'idle' ? 'ready' : state;
+        this.stateText.parentElement?.setAttribute('data-state', state);
       }),
       api.onBrainCaptured((n) => this.addCapturedRow(n, true)),
       api.onBrainRemoved((id) => this.removeCapturedRow(id))
@@ -401,7 +487,7 @@ export class MainView {
     this.renderSessionList(sessions);
     const first = sessions[0];
     if (loadFirst && this.activeSession === null && first) {
-      await this.openSession(first.id);
+      await this.openSession(first.id, first.title);
     }
   }
 
@@ -419,14 +505,15 @@ export class MainView {
       time.textContent = relativeTime(s.updatedAt);
       li.append(title, time);
       li.addEventListener('click', () => {
-        void this.openSession(s.id);
+        void this.openSession(s.id, s.title);
       });
       this.sessionList.appendChild(li);
     }
   }
 
-  private async openSession(id: string): Promise<void> {
+  private async openSession(id: string, title?: string): Promise<void> {
     this.activeSession = id;
+    this.conversationTitle.textContent = title?.trim() ? title.toLowerCase() : 'new conversation';
     const turns = await this.api.loadSession(id);
     this.transcript.textContent = '';
     this.transcript.appendChild(renderTranscript(turns));

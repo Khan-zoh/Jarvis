@@ -8,10 +8,10 @@ clean. Run Gates A–C first for the live voice/backend/tools proofs; this gate 
 Artifact: `dist-package/Jarvis Setup 0.1.0.exe` (built by `npm run dist`). Unsigned — see the
 signing note at the bottom.
 
-Automated private-beta release evidence (2026-07-19): production audit clean, 618 tests passed,
+Automated private-beta release evidence (2026-07-19): production audit clean, 620 tests passed,
 all model hashes verified, both native ABIs load-tested, brain-enabled packaged and extracted-NSIS
 payload startups passed, and normal shutdown left no helpers. Installer SHA-256:
-`0dca395a40b76907d23656cd9f875fbce6af3aa59ff98dd946886517aedcde07`.
+`cfe9f103bafa0c77fb994d67bda5fffeca124886ac0650264e9434ca7c0ee6b2`.
 
 The remaining items in this checklist require human hardware/account interaction: standalone
 Claude/Codex login, speaking/listening through the real microphone and speakers, Google

@@ -248,10 +248,12 @@ export class WindowManager {
       return;
     }
     const win = new BrowserWindow({
-      width: 900,
-      height: 670,
+      width: 1080,
+      height: 760,
+      minWidth: 780,
+      minHeight: 600,
       show: false,
-      backgroundColor: '#ffffff',
+      backgroundColor: '#fafaf7',
       webPreferences: {
         preload: WINDOW_ASSETS.preload,
         contextIsolation: true,

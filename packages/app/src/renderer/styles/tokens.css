@@ -12,6 +12,13 @@
   --grey-1: #e8e8e4;       /* hairlines */
   --grey-2: #8a8a86;       /* secondary text */
 
+  /* derived surfaces keep the original four-color palette intact */
+  --surface-soft: color-mix(in srgb, var(--grey-1) 46%, var(--paper));
+  --surface-raised: color-mix(in srgb, var(--paper) 94%, var(--ink));
+  --surface-hover: color-mix(in srgb, var(--grey-1) 68%, var(--paper));
+  --shadow-soft: 0 12px 36px color-mix(in srgb, var(--ink) 9%, transparent);
+  --shadow-float: 0 18px 55px color-mix(in srgb, var(--ink) 14%, transparent);
+
   --font-display: 'Fraunces';     /* serif, high-contrast — headings, agent name, state word */
   --font-body: 'Inter';           /* UI text */
   --font-mono: 'IBM Plex Mono';   /* transcripts, tool lines, timestamps */
@@ -19,6 +26,9 @@
   /* non-color primitives */
   --hairline: 1px solid var(--grey-1);
   --fade: 180ms ease-out;         /* the only motion: opacity/transform, <=200ms */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
 }
 
 /* dark theme: ink <-> paper inverted, hairline grey adjusted; grey-2 reads on both */

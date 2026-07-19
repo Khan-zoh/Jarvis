@@ -4,8 +4,9 @@ A resident Windows 11 desktop voice assistant. Say **"Hey Jarvis"**, speak a req
 answers aloud — driven by your existing **Claude** and **Codex (ChatGPT)** subscriptions as the
 agent brains, with tools for Google Workspace (Gmail, Calendar, Drive), the local system, and the
 web. Everything speech-related (wake word, transcription, endpointing, text-to-speech) runs
-**locally and offline**. The UI is deliberately monochrome and typography-led — no gradients, no
-glowing orbs. It's also usable without voice: a global hotkey opens a text command bar.
+**locally and offline**. The UI is a modern assistant workspace with a monochrome,
+typography-led Jarvis identity. It's also usable without voice: a global hotkey opens its floating
+text composer.
 
 See `cdd/plan/overview.md` for the full vision and the architecture decision record.
 

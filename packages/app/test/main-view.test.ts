@@ -145,6 +145,23 @@ describe('MainView command bar', () => {
     view.showSettings(false);
     expect(pane.hidden).toBe(true);
   });
+
+  it('renders the modern assistant shell and reflects live state', () => {
+    expect(root.querySelector('.sidebar')).not.toBeNull();
+    expect(root.querySelector('.conversation-head h1')?.textContent).toBe('a session');
+    expect(root.querySelector('.composer-dock')).not.toBeNull();
+    expect(root.querySelector('.state-text')?.textContent).toBe('ready');
+
+    api.pushState('thinking');
+    expect(root.querySelector('.state-text')?.textContent).toBe('thinking');
+    expect(root.querySelector('.state-pill')?.getAttribute('data-state')).toBe('thinking');
+  });
+
+  it('new conversation control starts a fresh session', async () => {
+    (root.querySelector('.btn-new-thread') as HTMLButtonElement).click();
+    await flush();
+    expect(api.calls.newSession).toBe(1);
+  });
 });
 
 describe('MainView live events (wire-and-converse)', () => {

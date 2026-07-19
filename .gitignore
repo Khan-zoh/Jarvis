@@ -6,4 +6,5 @@ models/
 scratch/
 *.local
 .vite/
+.playwright-cli/
 *.log

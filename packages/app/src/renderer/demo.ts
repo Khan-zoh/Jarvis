@@ -19,6 +19,7 @@ const SEED_TURNS: TurnRecord[] = [
     at: iso(190),
     backend: 'claude',
     userText: 'what does my morning look like tomorrow?',
+    assistantUpdates: ['checking your calendar and resolving overlaps'],
     assistantText:
       'three things: standup at 9:30, a dentist hold at 11, and the design review moved to 11:45. the first two overlap by nothing — you have a clear gap from 10 to 11.',
     tools: [{ toolName: 'gcal.list', ok: true }]
