@@ -1,7 +1,10 @@
 {
   "name": "@jarvis/app",
+  "productName": "Jarvis",
   "private": true,
   "version": "0.1.0",
+  "description": "Jarvis resident Windows voice assistant",
+  "author": "Jarvis contributors",
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
@@ -24,6 +27,6 @@
     "@jarvis/tools-mcp": "0.1.0",
     "@openai/codex-sdk": "^0.144.5",
     "@picovoice/porcupine-node": "^4.0.2",
-    "onnxruntime-node": "^1.27.0"
+    "onnxruntime-node": "1.21.1"
   }
 }

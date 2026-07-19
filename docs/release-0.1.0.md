@@ -6,6 +6,38 @@ Builds on the A7 packaging smoke (`docs/packaging-smoke.md`) — that proved the
 native/asar/spawn behaviours; this task turned the `--dir` proof into a real installer and closed
 the "what hardening must still do" list.
 
+## Private-beta refresh (2026-07-18, current)
+
+This refresh supersedes the earlier artifact metrics and automated test totals below while keeping
+the original packaging-hardening record as history.
+
+- Release command: `scripts/private-beta-release.ps1` (audit, tests, pinned model verification,
+  installer, native ABI checks, brain-enabled packaged startup, and checksum).
+- Production dependency audit: **0 vulnerabilities**. `onnxruntime-node` is pinned to 1.21.1 to
+  avoid the high-severity `adm-zip` advisory introduced in its newer installer dependency.
+- Tests: **629 passed** — app 458, tools-mcp 171.
+- All ten core/brain model and binary artifacts matched their pinned SHA-256 values.
+- The scoped workspace package name previously made Electron choose `%APPDATA%/@jarvis/app`.
+  Startup now explicitly enforces the documented `%APPDATA%/Jarvis` user-data contract.
+- Fixed a packaged-brain-only ABI bug: the old hoisted-workspace `electron-rebuild --only`
+  invocation found no modules, and the post-package Node rebuild could mutate a hard-linked
+  packaged binary. Packaging now performs a workspace-aware forced Electron rebuild, proves the
+  staged `.node` file loads under Electron, breaks the hard link, restores the workspace Node ABI,
+  and proves that ABI too.
+- Brain-enabled packaged startup passed: second brain opened, ONNX embedder warmed, IPC registered,
+  all 24 MCP tools registered, graceful Picovoice-only setup state surfaced, timed normal shutdown
+  completed, and no Jarvis/helper processes survived.
+- The final NSIS payload was extracted and launched independently; it passed the same brain-enabled
+  smoke and clean shutdown.
+- The final NSIS installer then installed silently to the normal per-user location with exit 0;
+  the installed executable passed the same brain-enabled smoke, desktop and Start-menu shortcuts
+  exist, the uninstaller is present, and no helper processes survived shutdown.
+- Installer: `dist-package/Jarvis Setup 0.1.0.exe`, 320,623,416 bytes.
+- SHA-256: `02c6b934bbbba27f31d8726dad27a860367eb70511bc9ded1a8ef28591fdf3cb`.
+- Signature: `NotSigned` (accepted for this trusted private beta).
+- Local machine provisioning: verified models copied to `%APPDATA%/Jarvis/models`; hybrid second
+  brain enabled against `D:\JarvisBrain`; timestamped backups stored under `D:\JarvisBackups`.
+
 ## Build & artifacts
 
 - `npm run dist` (root) → `dist-package/Jarvis Setup 0.1.0.exe` (NSIS, x64, per-user, unsigned).

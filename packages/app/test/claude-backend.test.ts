@@ -9,6 +9,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: queryMock }));
 
 // Imported AFTER vi.mock so the mock is in place.
 import { AUTH_PROBLEM, ClaudeBackend, MCP_FAILED_PROBLEM } from '../src/agents/claude';
+import { backendComplete } from '../src/agents/brain/distill';
 
 const TOOLS_PATHS = { entryJs: 'C:/app/tools-mcp/index.js', dataDir: 'C:/data' };
 const CWD = 'C:/data/agent-cwd';
@@ -222,6 +223,59 @@ describe('ClaudeBackend auth-failure detection (A9)', () => {
     const { result } = await backend.startTurn({ input: 'hi', sessionId: null, onEvent: (e) => events.push(e) });
     await expect(result).rejects.toThrow('authentication_failed');
     expect(events).toEqual([{ kind: 'error', message: AUTH_PROBLEM }]);
+  });
+});
+
+describe('ClaudeBackend init caching (B2)', () => {
+  it('caches a successful init — repeated init() runs the live probe exactly once', async () => {
+    useStream([initOk, delta('ok'), resultSuccess]);
+    const backend = makeBackend();
+    expect(await backend.init()).toEqual({ ok: true });
+    expect(await backend.init()).toEqual({ ok: true });
+    expect(await backend.init()).toEqual({ ok: true });
+    expect(queryMock).toHaveBeenCalledTimes(1); // ONE live probe, not one per call
+  });
+
+  it('concurrent init() calls share a single probe', async () => {
+    useStream([initOk, delta('ok'), resultSuccess]);
+    const backend = makeBackend();
+    const [a, b] = await Promise.all([backend.init(), backend.init()]);
+    expect(a).toEqual({ ok: true });
+    expect(b).toEqual({ ok: true });
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('never caches a failure — the next init() re-probes (user may have just logged in)', async () => {
+    useStream([initOk, assistantAuthError, resultLiesSuccess]);
+    const backend = makeBackend();
+    expect((await backend.init()).ok).toBe(false);
+    // Login fixed: the next init must run a FRESH probe and see it.
+    useStream([initOk, delta('ok'), resultSuccess]);
+    expect(await backend.init()).toEqual({ ok: true });
+    expect(queryMock).toHaveBeenCalledTimes(1); // the re-probe hit the (reset) mock
+  });
+
+  it('invalidate() drops the cached readiness and forces a fresh probe', async () => {
+    useStream([initOk, delta('ok'), resultSuccess]);
+    const backend = makeBackend();
+    expect(await backend.init()).toEqual({ ok: true });
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    backend.invalidate();
+    expect(await backend.init()).toEqual({ ok: true });
+    expect(queryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('distill backendComplete reuses the cached readiness — no fresh probe per capture (B2)', async () => {
+    useStream([initOk, delta('ok'), resultSuccess]);
+    const backend = makeBackend();
+    await backendComplete(backend, 'distill exchange 1');
+    await backendComplete(backend, 'distill exchange 2');
+    // 1 probe + 2 real turns = 3 query() calls; a per-capture probe would make it 4.
+    expect(queryMock).toHaveBeenCalledTimes(3);
+    // The first call was the probe (maxTurns 1); the captures ran full turns (maxTurns 12).
+    expect(queryMock.mock.calls[0]![0].options.maxTurns).toBe(1);
+    expect(queryMock.mock.calls[1]![0].options.maxTurns).toBe(12);
+    expect(queryMock.mock.calls[2]![0].options.maxTurns).toBe(12);
   });
 });
 

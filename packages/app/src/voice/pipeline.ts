@@ -62,6 +62,15 @@ export interface VoicePipelineDeps {
   /** Plays the short wake acknowledgement (assets/wake.wav). Injected so tests never touch audio;
    * the main process wires a real ffplay-backed player. Defaults to a no-op. */
   playWakeSound?: () => void;
+  /**
+   * Barge-in hook (release blocker B1): fired when the wake word interrupts a SPEAKING turn —
+   * i.e. the user is talking over an in-flight reply. The pipeline itself only cancels TTS and
+   * abandons the turn locally; whoever owns the backend (the Conductor) must ALSO interrupt the
+   * in-flight router turn here, or the replacement utterance hits the router's busy guard and is
+   * refused with "One moment, still working." Not fired on a cold wake from idle. Defaults to a
+   * no-op (echo mode / tests without a backend).
+   */
+  onBargeIn?: () => void;
   /** Timer seam (default: global setTimeout/clearTimeout). */
   timers?: PipelineTimers;
   /** Endpointer factory (default: `new Endpointer()` with plan defaults). Injectable for tests. */
@@ -85,6 +94,7 @@ export class VoicePipeline {
   private readonly deps: VoicePipelineDeps;
   private readonly timers: PipelineTimers;
   private readonly playWakeSound: () => void;
+  private readonly onBargeIn: () => void;
   private readonly makeEndpointer: () => Endpointer;
 
   private readonly listeners: {
@@ -127,6 +137,7 @@ export class VoicePipeline {
     this.deps = deps;
     this.timers = deps.timers ?? DEFAULT_TIMERS;
     this.playWakeSound = deps.playWakeSound ?? ((): void => {});
+    this.onBargeIn = deps.onBargeIn ?? ((): void => {});
     this.makeEndpointer = deps.makeEndpointer ?? ((): Endpointer => new Endpointer());
   }
 
@@ -342,9 +353,12 @@ export class VoicePipeline {
 
   private onWake(bargeIn: boolean): void {
     if (bargeIn) {
-      // Cancel the reply that is currently speaking and abandon its remaining agent events.
+      // Cancel the reply that is currently speaking and abandon its remaining agent events —
+      // then tell the backend owner to interrupt the in-flight router turn (B1). Without that,
+      // only the LOCAL half of the turn dies and the replacement utterance gets busy-refused.
       this.turn += 1;
       this.deps.tts.cancel();
+      this.onBargeIn();
     }
     this.playWakeSound();
     this.enterListening();

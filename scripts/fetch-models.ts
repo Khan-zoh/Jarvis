@@ -4,14 +4,19 @@
 // Idempotent: a second run with unchanged files is a fast no-op. `--force` re-downloads
 // everything regardless of what's already on disk.
 //
+// Safety pipeline (per spec): download → (for zips) verify the pinned ARCHIVE sha256 → extract
+// into a per-spec staging directory with a zip-slip guard → verify the pinned per-file sha256 in
+// staging → only then atomically promote (rename) into the live models dir. On ANY failure the
+// staging dir is deleted and the live dir is left untouched; a re-run after a crashed/partial
+// promote self-heals via the existing on-disk hash check.
+//
 // See cdd/plan/voice-pipeline.md ("Model/binary provisioning") for the contract this
 // implements, and cdd/tasks/fetch-models.md for the acceptance criteria.
 
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { mkdir, mkdtemp, readdir, rename, rm, writeFile, readFile, stat } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // ---------------------------------------------------------------------------------------------
@@ -31,7 +36,13 @@ export interface ArchiveCompanion {
 export interface ArchiveSpec {
   /** Path inside the zip that corresponds to the spec's `dest` field. */
   zipEntry: string;
-  /** Extra files pulled from the same zip, not individually hash-verified. */
+  /** Expected sha256 of the downloaded zip itself, verified BEFORE extraction. This
+   * authenticates every file the archive carries — including companions and extractAll trees
+   * that have no individual per-file pin. Optional (additive field, legacy specs without it
+   * still work); all shipped archive specs below pin it. */
+  sha256?: string;
+  /** Extra files pulled from the same zip, not individually hash-verified (they are covered by
+   * the archive-level `sha256` pin above when present). */
   companions?: ArchiveCompanion[];
   /** When set, extract the *entire* zip tree (minus `stripPrefix`) into `dest`'s directory
    * instead of extracting individual entries. Used for piper's runtime tree (espeak-ng-data
@@ -55,6 +66,14 @@ export interface ModelSpec {
   archive?: ArchiveSpec;
 }
 
+/** One "extract this zip entry to this absolute path" instruction. Dest paths are always
+ * computed in TypeScript (never derived from entry names inside PowerShell) and are containment-
+ * checked against the staging root by `resolveUnderRoot` before extraction runs. */
+export interface ZipEntryMapping {
+  entry: string;
+  dest: string;
+}
+
 export interface FetchModelsOptions {
   force?: boolean;
   withBrain?: boolean;
@@ -62,8 +81,16 @@ export interface FetchModelsOptions {
   modelsRoot?: string;
   /** Injectable downloader, used by tests to avoid real network access. */
   download?: (url: string) => Promise<Buffer>;
-  /** Injectable zip extractor, used by tests to avoid spawning powershell. */
-  extractZip?: (zipPath: string, archive: ArchiveSpec, modelsRoot: string) => Promise<void>;
+  /** Injectable coarse zip extractor, used by tests to avoid spawning powershell. When provided
+   * it replaces the whole list+guard+extract flow; the third argument is the STAGING root the
+   * extracted files must be written under (they are hash-verified there and only then promoted
+   * into the live models dir). */
+  extractZip?: (zipPath: string, archive: ArchiveSpec, stagingRoot: string) => Promise<void>;
+  /** Injectable zip entry lister (file entries only, zip-internal `/`-separated names), used by
+   * tests to exercise the zip-slip guard without spawning powershell. */
+  listZipEntries?: (zipPath: string) => Promise<string[]>;
+  /** Injectable per-entry extractor, used by tests together with `listZipEntries`. */
+  extractZipEntries?: (zipPath: string, mappings: ZipEntryMapping[]) => Promise<void>;
   log?: (msg: string) => void;
 }
 
@@ -86,14 +113,24 @@ export interface SpecResult {
 //    cross-checked against gyan.dev's own published .zip.sha256, which matched).
 //  - VERIFIED (official HuggingFace LFS API checksum, not re-downloaded here because the files
 //    are 100+ MB): ggml-small.en.bin, the piper voice .onnx, the bge model.onnx.
+// Archive-level pins (`archive.sha256`, verified before extraction — authenticates every
+// companion/tree file the zip carries, closing the "companions unauthenticated" gap):
+//  - ffmpeg zip: matches gyan.dev's published ffmpeg-8.0.1-essentials_build.zip.sha256
+//    (re-fetched and re-confirmed against a fresh download, 2026-07-18).
+//  - whisper-bin-x64.zip v1.9.1 / piper_windows_amd64.zip 2023.11.14-2: upstream publishes no
+//    archive checksum; hashes computed 2026-07-18 from direct downloads whose extracted
+//    whisper-cli.exe / whisper-server.exe / piper.exe byte-matched the per-file pins recorded at
+//    original authoring time — i.e. the same archives those pins were derived from.
 // No hash below is a placeholder; every one traces to a real source.
 // ---------------------------------------------------------------------------------------------
 
 const WHISPER_CPP_VERSION = 'v1.9.1';
 const WHISPER_CPP_ZIP_URL = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_CPP_VERSION}/whisper-bin-x64.zip`;
+const WHISPER_CPP_ZIP_SHA256 = '7d8be46ecd31828e1eb7a2ecdd0d6b314feafd82163038ab6092594b0a063539';
 
 const PIPER_VERSION = '2023.11.14-2';
 const PIPER_ZIP_URL = `https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_windows_amd64.zip`;
+const PIPER_ZIP_SHA256 = 'f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea';
 
 const SILERO_VAD_URL =
   'https://raw.githubusercontent.com/snakers4/silero-vad/v4.0/files/silero_vad.onnx';
@@ -105,6 +142,8 @@ const SILERO_VAD_URL =
 // is required by the later TTS task for raw-PCM playback.
 const FFMPEG_VERSION = '8.0.1';
 const FFMPEG_ZIP_URL = `https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-${FFMPEG_VERSION}-essentials_build.zip`;
+// Matches gyan.dev's published `${FFMPEG_ZIP_URL}.sha256`.
+const FFMPEG_ZIP_SHA256 = 'e2aaeaa0fdbc397d4794828086424d4aaa2102cef1fb6874f6ffd29c0b88b673';
 
 // Pinned HF commit SHAs so `/resolve/<rev>/...` URLs never move out from under a recorded hash.
 const WHISPER_CPP_HF_REV = '5359861c739e955e79d9a303bcbc70fb988958b1';
@@ -126,6 +165,7 @@ export const REQUIRED_MODELS: ModelSpec[] = [
     group: 'core',
     archive: {
       zipEntry: 'Release/whisper-cli.exe',
+      sha256: WHISPER_CPP_ZIP_SHA256,
       companions: [
         { zipEntry: 'Release/ggml.dll', dest: 'bin/ggml.dll' },
         { zipEntry: 'Release/ggml-base.dll', dest: 'bin/ggml-base.dll' },
@@ -157,7 +197,8 @@ export const REQUIRED_MODELS: ModelSpec[] = [
     dest: 'bin/whisper-server.exe',
     group: 'core',
     archive: {
-      zipEntry: 'Release/whisper-server.exe'
+      zipEntry: 'Release/whisper-server.exe',
+      sha256: WHISPER_CPP_ZIP_SHA256
     }
   },
   {
@@ -175,6 +216,7 @@ export const REQUIRED_MODELS: ModelSpec[] = [
     group: 'core',
     archive: {
       zipEntry: 'piper/piper.exe',
+      sha256: PIPER_ZIP_SHA256,
       extractAll: { stripPrefix: 'piper/' }
     }
   },
@@ -207,6 +249,7 @@ export const REQUIRED_MODELS: ModelSpec[] = [
     group: 'core',
     archive: {
       zipEntry: `ffmpeg-${FFMPEG_VERSION}-essentials_build/bin/ffmpeg.exe`,
+      sha256: FFMPEG_ZIP_SHA256,
       companions: [
         {
           zipEntry: `ffmpeg-${FFMPEG_VERSION}-essentials_build/bin/ffplay.exe`,
@@ -235,6 +278,8 @@ export const REQUIRED_MODELS: ModelSpec[] = [
 // Core logic
 // ---------------------------------------------------------------------------------------------
 
+const STAGING_PREFIX = '.staging-';
+
 function repoRoot(): string {
   // scripts/fetch-models.ts -> repo root is one directory up.
   return resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -242,6 +287,10 @@ function repoRoot(): string {
 
 export async function computeSha256(filePath: string): Promise<string> {
   const buf = await readFile(filePath);
+  return createHash('sha256').update(buf).digest('hex');
+}
+
+function sha256OfBuffer(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
 }
 
@@ -269,19 +318,55 @@ async function defaultDownload(url: string): Promise<Buffer> {
   }
 }
 
+/**
+ * Zip-slip guard: resolves `relPath` under `root` and throws unless the result stays strictly
+ * inside `root`. Rejects NUL bytes, absolute paths, drive-prefixed paths (`C:...`), UNC paths,
+ * and any `..` traversal that would escape the root. Exported for direct testing.
+ */
+export function resolveUnderRoot(root: string, relPath: string): string {
+  if (relPath.includes('\0')) {
+    throw new Error(`unsafe zip entry path (NUL byte): ${JSON.stringify(relPath)}`);
+  }
+  // Zip entry names use '/', but be tolerant of '\' so a backslash-based traversal cannot slip
+  // past the checks below on Windows.
+  const unified = relPath.replaceAll('\\', '/');
+  // ':' is illegal in Windows file names, so any occurrence means a drive-prefixed or otherwise
+  // absolute path (C:\..., C:evil, //server/share via C:) — reject outright, even mid-path,
+  // because callers may join a spec-controlled prefix in front of the entry name.
+  if (unified.startsWith('/') || unified.includes(':')) {
+    throw new Error(`unsafe zip entry path (absolute or drive-prefixed): ${relPath}`);
+  }
+  // Reject any `..` segment, even one that would happen to resolve back inside the root once a
+  // prefix is joined — archive entries have no business containing `..` at all.
+  if (unified.split('/').some((s) => s === '..')) {
+    throw new Error(`unsafe zip entry path (.. traversal): ${relPath}`);
+  }
+  const rootAbs = resolve(root);
+  const dest = resolve(rootAbs, unified);
+  const rel = relative(rootAbs, dest);
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`unsafe zip entry path (escapes extraction root): ${relPath}`);
+  }
+  return dest;
+}
+
 function psQuote(value: string): string {
   // Embed a literal value inside a single-quoted PowerShell string.
   return value.replace(/'/g, "''");
 }
 
-async function runPowerShell(script: string): Promise<void> {
-  await new Promise<void>((resolvePromise, reject) => {
+async function runPowerShell(script: string): Promise<string> {
+  return new Promise<string>((resolvePromise, reject) => {
     const ps = spawn(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
       { windowsHide: true }
     );
+    let stdout = '';
     let stderr = '';
+    ps.stdout.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
     ps.stderr.on('data', (d: Buffer) => {
       stderr += d.toString();
     });
@@ -291,7 +376,7 @@ async function runPowerShell(script: string): Promise<void> {
     }, 120_000);
     ps.on('close', (code) => {
       clearTimeout(timeout);
-      if (code === 0) resolvePromise();
+      if (code === 0) resolvePromise(stdout);
       else reject(new Error(`powershell exited with code ${code}: ${stderr.trim()}`));
     });
     ps.on('error', (err) => {
@@ -301,62 +386,43 @@ async function runPowerShell(script: string): Promise<void> {
   });
 }
 
-/** Extracts everything a spec's archive needs (primary file + companions, or a full tree).
- * Default implementation shells out to PowerShell's System.IO.Compression (Windows-only,
- * matches this project's target platform — avoids adding a zip-parsing npm dependency). Tests
- * inject `extractZip` instead so they never spawn a subprocess. */
-async function extractArchiveForSpec(
-  zipPath: string,
-  spec: ModelSpec,
-  modelsRoot: string,
-  extractZip?: FetchModelsOptions['extractZip']
-): Promise<void> {
-  const archive = spec.archive;
-  if (!archive) return;
-
-  if (extractZip) {
-    await extractZip(zipPath, archive, modelsRoot);
-    return;
-  }
-
-  if (archive.extractAll) {
-    const destDir = dirname(resolve(modelsRoot, spec.dest));
-    await mkdir(destDir, { recursive: true });
-    const script = `
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = [System.IO.Compression.ZipFile]::OpenRead('${psQuote(zipPath)}')
-$destDir = '${psQuote(destDir)}'
-$stripPrefix = '${psQuote(archive.extractAll.stripPrefix)}'
-foreach ($e in $zip.Entries) {
-  if ($e.Name -eq '') { continue }
-  $rel = $e.FullName
-  if ($stripPrefix -and $rel.StartsWith($stripPrefix)) { $rel = $rel.Substring($stripPrefix.Length) }
-  $outPath = Join-Path $destDir $rel
-  $outDir = Split-Path -Parent $outPath
-  if ($outDir -and -not (Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
-  [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, $outPath, $true)
-}
-$zip.Dispose()
-`;
-    await runPowerShell(script);
-    return;
-  }
-
-  const mappings = [
-    { entry: archive.zipEntry, dest: resolve(modelsRoot, spec.dest) },
-    ...(archive.companions ?? []).map((c) => ({ entry: c.zipEntry, dest: resolve(modelsRoot, c.dest) }))
-  ];
-  for (const m of mappings) {
-    await mkdir(dirname(m.dest), { recursive: true });
-  }
-  const mappingsJson = JSON.stringify(mappings);
+/** Lists the file entries (zip-internal `/`-separated names) of a zip via PowerShell. */
+async function defaultListZipEntries(zipPath: string): Promise<string[]> {
   const script = `
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead('${psQuote(zipPath)}')
-$mappings = '${psQuote(mappingsJson)}' | ConvertFrom-Json
+foreach ($e in $zip.Entries) {
+  if ($e.Name -ne '') { [Console]::Out.WriteLine($e.FullName) }
+}
+$zip.Dispose()
+`;
+  const stdout = await runPowerShell(script);
+  return stdout
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
+/** Extracts explicit entry→dest mappings via PowerShell (System.IO.Compression — Windows-only,
+ * matches this project's target platform; avoids adding a zip-parsing npm dependency). Dest
+ * paths are computed and containment-checked in TypeScript before this runs; PowerShell never
+ * derives an output path from an entry name. Mappings travel through a JSON file to stay clear
+ * of command-line length limits (piper's extractAll tree is hundreds of entries). */
+async function defaultExtractZipEntries(
+  zipPath: string,
+  mappings: ZipEntryMapping[]
+): Promise<void> {
+  const mappingsPath = `${zipPath}.mappings.json`;
+  await writeFile(mappingsPath, JSON.stringify(mappings));
+  const script = `
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$mappings = Get-Content -Raw -LiteralPath '${psQuote(mappingsPath)}' | ConvertFrom-Json
+$zip = [System.IO.Compression.ZipFile]::OpenRead('${psQuote(zipPath)}')
+$byName = @{}
+foreach ($e in $zip.Entries) { if ($e.Name -ne '') { $byName[$e.FullName] = $e } }
 foreach ($m in $mappings) {
-  $entry = $zip.Entries | Where-Object { $_.FullName -eq $m.entry } | Select-Object -First 1
-  if (-not $entry) { throw "Entry not found in zip: $($m.entry)" }
+  $entry = $byName[$m.entry]
+  if (-not $entry) { $zip.Dispose(); throw "Entry not found in zip: $($m.entry)" }
   [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $m.dest, $true)
 }
 $zip.Dispose()
@@ -364,10 +430,81 @@ $zip.Dispose()
   await runPowerShell(script);
 }
 
+/** Extracts everything a spec's archive needs (primary file + companions, or a full tree) into
+ * `stagingRoot`. Entry names from the (untrusted) zip only ever become output paths via
+ * `resolveUnderRoot`, which rejects traversal/absolute/drive-prefixed entries before anything
+ * is written. Tests inject either the coarse `extractZip` seam or the finer
+ * `listZipEntries`/`extractZipEntries` pair so they never spawn a subprocess. */
+async function extractArchiveForSpec(
+  zipPath: string,
+  spec: ModelSpec,
+  stagingRoot: string,
+  opts: Pick<FetchModelsOptions, 'extractZip' | 'listZipEntries' | 'extractZipEntries'>
+): Promise<void> {
+  const archive = spec.archive;
+  if (!archive) return;
+
+  if (opts.extractZip) {
+    await opts.extractZip(zipPath, archive, stagingRoot);
+    return;
+  }
+
+  const listEntries = opts.listZipEntries ?? defaultListZipEntries;
+  const extractEntries = opts.extractZipEntries ?? defaultExtractZipEntries;
+
+  let mappings: ZipEntryMapping[];
+  if (archive.extractAll) {
+    const destDirRel = dirname(spec.dest);
+    const stripPrefix = archive.extractAll.stripPrefix;
+    const entries = await listEntries(zipPath);
+    mappings = [];
+    for (const entryName of entries) {
+      if (entryName.endsWith('/') || entryName.endsWith('\\')) continue; // directory entry
+      let rel = entryName;
+      if (stripPrefix && rel.startsWith(stripPrefix)) rel = rel.slice(stripPrefix.length);
+      // Validate the RAW entry-derived path first: joining `destDirRel/` in front would
+      // otherwise neutralize a leading '/' (e.g. `bin` + `/abs/evil` → `bin//abs/evil`).
+      resolveUnderRoot(stagingRoot, rel);
+      const relFromRoot = destDirRel === '.' ? rel : `${destDirRel}/${rel}`;
+      mappings.push({ entry: entryName, dest: resolveUnderRoot(stagingRoot, relFromRoot) });
+    }
+  } else {
+    mappings = [
+      { entry: archive.zipEntry, dest: resolveUnderRoot(stagingRoot, spec.dest) },
+      ...(archive.companions ?? []).map((c) => ({
+        entry: c.zipEntry,
+        dest: resolveUnderRoot(stagingRoot, c.dest)
+      }))
+    ];
+  }
+
+  for (const m of mappings) {
+    await mkdir(dirname(m.dest), { recursive: true });
+  }
+  await extractEntries(zipPath, mappings);
+}
+
+/** Moves every staged file into the live models dir. Staging lives INSIDE the models root, so
+ * each rename is an atomic same-volume move (overwriting any stale file at the target). */
+async function promoteStagedFiles(stagedFilesRoot: string, modelsRoot: string): Promise<void> {
+  const dirents = await readdir(stagedFilesRoot, { recursive: true, withFileTypes: true });
+  for (const d of dirents) {
+    if (!d.isFile()) continue;
+    const from = join(d.parentPath, d.name);
+    const rel = relative(stagedFilesRoot, from);
+    const to = join(modelsRoot, rel);
+    await mkdir(dirname(to), { recursive: true });
+    await rename(from, to);
+  }
+}
+
 async function processSpec(
   spec: ModelSpec,
   opts: Required<Pick<FetchModelsOptions, 'force' | 'withBrain' | 'modelsRoot'>> &
-    Pick<FetchModelsOptions, 'download' | 'extractZip' | 'log'>
+    Pick<
+      FetchModelsOptions,
+      'download' | 'extractZip' | 'listZipEntries' | 'extractZipEntries' | 'log'
+    >
 ): Promise<SpecResult> {
   const log = opts.log ?? (() => {});
   const group = spec.group ?? 'core';
@@ -392,25 +529,50 @@ async function processSpec(
 
   const download = opts.download ?? defaultDownload;
 
+  // Everything below happens in a per-spec staging dir INSIDE the models root (same volume, so
+  // the final promote is an atomic rename). Nothing touches the live tree until every pinned
+  // hash has been verified in staging; any failure deletes the staging dir in `finally` and
+  // leaves the live dir untouched.
+  let stagingRoot: string | undefined;
   try {
-    await mkdir(dirname(destPath), { recursive: true });
+    stagingRoot = await mkdtemp(join(opts.modelsRoot, STAGING_PREFIX));
+    const stagedFiles = join(stagingRoot, 'files');
+    await mkdir(stagedFiles, { recursive: true });
+
+    const buf = await download(spec.url);
 
     if (spec.archive) {
-      const buf = await download(spec.url);
-      const tmpDir = await mkdtemp(join(tmpdir(), 'jarvis-fetch-models-'));
-      const zipPath = join(tmpDir, 'download.zip');
-      try {
-        await writeFile(zipPath, buf);
-        await extractArchiveForSpec(zipPath, spec, opts.modelsRoot, opts.extractZip);
-      } finally {
-        await rm(tmpDir, { recursive: true, force: true });
+      if (spec.archive.sha256) {
+        const zipHash = sha256OfBuffer(buf);
+        if (zipHash !== spec.archive.sha256) {
+          return {
+            name: spec.name,
+            status: 'failed',
+            dest: spec.dest,
+            message: `archive sha256 mismatch (refusing to extract): expected ${spec.archive.sha256}, got ${zipHash}`
+          };
+        }
+        log(`${spec.name}: archive sha256 verified`);
       }
+      const zipPath = join(stagingRoot, 'download.zip');
+      await writeFile(zipPath, buf);
+      await extractArchiveForSpec(zipPath, spec, stagedFiles, opts);
     } else {
-      const buf = await download(spec.url);
-      await writeFile(destPath, buf);
+      const stagedDest = join(stagedFiles, spec.dest);
+      await mkdir(dirname(stagedDest), { recursive: true });
+      await writeFile(stagedDest, buf);
     }
 
-    const finalHash = await computeSha256(destPath);
+    const stagedPrimary = join(stagedFiles, spec.dest);
+    if (!(await fileExists(stagedPrimary))) {
+      return {
+        name: spec.name,
+        status: 'failed',
+        dest: spec.dest,
+        message: `extraction did not produce ${spec.dest}`
+      };
+    }
+    const finalHash = await computeSha256(stagedPrimary);
     if (spec.sha256 !== null && finalHash !== spec.sha256) {
       return {
         name: spec.name,
@@ -423,18 +585,41 @@ async function processSpec(
     if (spec.sha256 === null) {
       log(`${spec.name}: downloaded, computed sha256 ${finalHash} (PENDING — pin this in REQUIRED_MODELS)`);
     }
+
+    await promoteStagedFiles(stagedFiles, opts.modelsRoot);
     return { name: spec.name, status: 'downloaded', dest: spec.dest, sha256: finalHash };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { name: spec.name, status: 'failed', dest: spec.dest, message };
+  } finally {
+    if (stagingRoot) {
+      await rm(stagingRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+/** Removes leftover `.staging-*` dirs from a previous crashed/killed run. Safe: live model
+ * files never live under a staging dir. */
+async function cleanStaleStagingDirs(modelsRoot: string): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(modelsRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    if (e.isDirectory() && e.name.startsWith(STAGING_PREFIX)) {
+      await rm(join(modelsRoot, e.name), { recursive: true, force: true });
+    }
   }
 }
 
 /**
  * Runs the fetch/verify/skip pipeline over an explicit spec list. `fetchModels` is a thin
  * wrapper around this that always passes `REQUIRED_MODELS` — tests call `fetchSpecs` directly
- * with a fake spec list and an injected `download` (and optionally `extractZip`) so no real
- * network access or subprocess ever happens headlessly.
+ * with a fake spec list and an injected `download` (plus `extractZip` or
+ * `listZipEntries`/`extractZipEntries`) so no real network access or subprocess ever happens
+ * headlessly.
  */
 export async function fetchSpecs(
   specs: ModelSpec[],
@@ -446,6 +631,7 @@ export async function fetchSpecs(
   const log = opts.log ?? ((msg: string) => console.log(msg));
 
   await mkdir(modelsRoot, { recursive: true });
+  await cleanStaleStagingDirs(modelsRoot);
 
   const results: SpecResult[] = [];
   for (const spec of specs) {
@@ -455,6 +641,8 @@ export async function fetchSpecs(
       modelsRoot,
       download: opts.download,
       extractZip: opts.extractZip,
+      listZipEntries: opts.listZipEntries,
+      extractZipEntries: opts.extractZipEntries,
       log
     });
     results.push(result);

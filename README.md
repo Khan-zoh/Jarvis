@@ -50,6 +50,8 @@ npm run build       # builds both workspaces
 npm test            # vitest across all workspaces (plain Node)
 npm run dev         # launches the Electron app (see native-module note below)
 npm run fetch-models
+.\scripts\private-beta-release.ps1 # audit + tests + models + installer + packaged smoke + hash
+.\scripts\backup-private-beta.ps1  # vault + irreplaceable app data (models excluded)
 npm run dist        # builds the NSIS installer into dist-package/
 npm run package     # unpacked build only (dist-package/win-unpacked) — fast verification
 ```

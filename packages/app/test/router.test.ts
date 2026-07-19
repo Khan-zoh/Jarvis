@@ -173,6 +173,56 @@ describe('AgentRouter', () => {
     await expect(router.interrupt()).resolves.toBeUndefined();
   });
 
+  it('interrupt during a slow init cancels the turn BEFORE it starts (B2)', async () => {
+    claude.initHold = true; // the live probe hangs
+    const router = makeRouter();
+
+    const turn = router.dispatch('slow start', onEvent);
+    await waitFor(() => claude.initCalls === 1);
+    expect(router.busy).toBe(true);
+
+    // Interrupt lands while init is still in flight — pre-turn phase.
+    await router.interrupt();
+    claude.initHold = false; // later dispatches init normally
+    claude.releaseInit(); // the probe finally finishes, but the turn was already cancelled
+
+    const record = await turn;
+    // The backend turn NEVER started, the cancelled error event was emitted, nothing persisted.
+    expect(claude.calls).toHaveLength(0);
+    expect(events).toEqual([{ kind: 'error', message: 'cancelled' }]);
+    expect(record.assistantText).toBe('');
+    expect(sessions.list()).toHaveLength(0);
+    expect(router.busy).toBe(false);
+
+    // The router is not wedged: the next dispatch runs normally.
+    await router.dispatch('hello again', onEvent);
+    expect(claude.calls).toHaveLength(1);
+    expect(events.at(-1)?.kind).toBe('done');
+  });
+
+  it('interrupt during the context-provider phase also prevents the turn from starting (B2)', async () => {
+    let releaseProvider!: () => void;
+    const gated: ContextProvider = {
+      id: 'gated',
+      contribute: () =>
+        new Promise<string | null>((resolve) => {
+          releaseProvider = (): void => resolve('LATE FACT');
+        })
+    };
+    const router = makeRouter({ providers: [gated], providerTimeoutMs: 5000 });
+
+    const turn = router.dispatch('question', onEvent);
+    await waitFor(() => Boolean(releaseProvider));
+    await router.interrupt(); // init already passed; providers still pending
+    releaseProvider();
+
+    await turn;
+    expect(claude.calls).toHaveLength(0);
+    expect(events).toEqual([{ kind: 'error', message: 'cancelled' }]);
+    expect(sessions.list()).toHaveLength(0);
+    expect(router.busy).toBe(false);
+  });
+
   it('turns an init failure into an error event carrying the backend problem', async () => {
     codex.initResult = { ok: false, problem: 'Codex CLI not logged in. Run `codex login` first.' };
     const router = makeRouter();
