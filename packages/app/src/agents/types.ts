@@ -15,8 +15,17 @@ export interface TurnHandle {
  */
 export interface AgentBackend {
   readonly id: BackendId;
-  /** Verifies login / CLI availability. Returns `{ ok:false, problem }` with a setup message. */
+  /**
+   * Verifies login / CLI availability. Returns `{ ok:false, problem }` with a setup message.
+   * Implementations cache an ok result (initialized-once) — repeated calls must NOT re-run a
+   * live probe until `invalidate()` is called or a probe fails (failures are never cached).
+   */
   init(): Promise<{ ok: boolean; problem?: string }>;
+  /**
+   * Optional (additive): drops any cached init() readiness so the next call runs a fresh live
+   * probe. Used on auth changes and explicit status checks (settings UI).
+   */
+  invalidate?(): void;
   /**
    * Starts a turn. `onEvent` receives zero+ `text_delta`/`tool_start`/`tool_end` then exactly one
    * `done` or `error`. `result` resolves with the backend-native session id for resumption.

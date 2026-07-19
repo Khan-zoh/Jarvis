@@ -13,10 +13,10 @@
     "test": "npm run test --workspaces --if-present",
     "fetch-models": "node scripts/fetch-models.ts",
     "make-icon": "node scripts/make-icon.mjs",
-    "package": "npm run build && electron-builder --dir --project packages/app --config electron-builder.yml && npm rebuild better-sqlite3",
-    "dist": "npm run build && electron-builder --project packages/app --config electron-builder.yml && npm rebuild better-sqlite3",
+    "package": "npm run build && npm run rebuild:electron && electron-builder --dir --project packages/app --config electron-builder.yml && node scripts/restore-native-abis.mjs",
+    "dist": "npm run build && npm run rebuild:electron && electron-builder --project packages/app --config electron-builder.yml && node scripts/restore-native-abis.mjs",
     "rebuild:node": "npm rebuild better-sqlite3",
-    "rebuild:electron": "electron-rebuild --only better-sqlite3"
+    "rebuild:electron": "electron-rebuild --force --which-module better-sqlite3 --module-dir packages/app"
   },
   "devDependencies": {
     "typescript": "^6.0.3",

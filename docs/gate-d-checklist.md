@@ -8,6 +8,15 @@ clean. Run Gates A–C first for the live voice/backend/tools proofs; this gate 
 Artifact: `dist-package/Jarvis Setup 0.1.0.exe` (built by `npm run dist`). Unsigned — see the
 signing note at the bottom.
 
+Automated private-beta release evidence (2026-07-18): production audit clean, 629 tests passed,
+all model hashes verified, both native ABIs load-tested, brain-enabled packaged and extracted-NSIS
+payload startups passed, and normal shutdown left no helpers. Installer SHA-256:
+`02c6b934bbbba27f31d8726dad27a860367eb70511bc9ded1a8ef28591fdf3cb`.
+
+The remaining items in this checklist require human hardware/account interaction: Picovoice key,
+standalone Claude/Codex login, speaking/listening through the real microphone and speakers, Google
+OAuth consent, and interactive uninstall observation.
+
 ## What automated hardening already proved (don't redo)
 
 `npm run dist` + the packaged startup health check verify, on every build:

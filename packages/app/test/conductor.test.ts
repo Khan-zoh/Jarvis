@@ -12,10 +12,19 @@ import { Conductor, type Broadcast } from '../src/main/conductor';
 import { AgentRouter, buildSwitchNote } from '../src/agents/router';
 import { SessionStore } from '../src/agents/sessions';
 import { VoicePipeline } from '../src/voice/pipeline';
+import { Endpointer } from '../src/voice/vad';
 import type { AgentEvent, TurnRecord } from '../src/shared/types';
 import { FakeBackend } from './fakes/fakeBackend';
-import { FakeCapture, FakeStt, FakeTts, FakeVad, FakeWake } from './fakes/fakeVoice';
+import { FakeCapture, FakeStt, FakeTts, FakeVad, FakeWake, makeFrame } from './fakes/fakeVoice';
 import { makeConfig } from './fakes/testConfig';
+
+async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out');
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
 
 /** Records every broadcast like a mock webContents would receive it. */
 function makeBroadcastLog(): { broadcast: Broadcast; sent: { ch: string; arg: unknown }[] } {
@@ -188,6 +197,97 @@ describe('Conductor', () => {
     await first;
     // The interrupted first turn WAS persisted and pushed.
     expect(sent.filter((s) => s.ch === 'session:updated')).toHaveLength(1);
+  });
+
+  it('barge-in mid-backend-stream: exactly one backend interrupt, then the replacement utterance dispatches cleanly (B1 closure)', async () => {
+    // Full pipeline → conductor → router integration with fakes: the first voice turn is
+    // SPEAKING while its backend turn is still streaming (held); the wake word then fires
+    // mid-stream. Review-mandated assertions: exactly ONE backend interrupt, and the replacement
+    // utterance dispatches successfully — no "One moment, still working." busy refusal.
+    claude.script({ events: [{ kind: 'text_delta', text: 'A very long reply. ' }], hold: true });
+    claude.script({
+      events: [
+        { kind: 'text_delta', text: 'Second answer.' },
+        { kind: 'done', finalText: 'Second answer.' }
+      ]
+    });
+
+    const cfg = makeConfig();
+    cfg.voice.ttsEnabled = true;
+    const capture = new FakeCapture();
+    const wake = new FakeWake();
+    const vad = new FakeVad();
+    const stt = new FakeStt();
+    const tts = new FakeTts();
+    tts.hold = true; // playback stays in flight so the pipeline remains in 'speaking'
+
+    let conductorRef!: Conductor;
+    const pipeline = new VoicePipeline({
+      capture,
+      wake,
+      vad,
+      stt,
+      tts,
+      config: () => cfg,
+      // Same wiring src/main/index.ts makes: barge-in → conductor interrupts the backend.
+      onBargeIn: () => conductorRef.notifyBargeIn(),
+      makeEndpointer: () => new Endpointer({ silenceMs: 64, maxMs: 32_000 })
+    });
+    const { broadcast, sent } = makeBroadcastLog();
+    const conductor = new Conductor({ router, sessions, pipeline: () => pipeline, broadcast });
+    conductorRef = conductor;
+    const dispatches: Promise<void>[] = [];
+    pipeline.on('utterance', (text) => {
+      dispatches.push(conductor.handleUtterance(text));
+    });
+
+    await pipeline.start();
+
+    // Turn 1 (voice): backend streams a delta then HOLDS mid-stream; the pipeline speaks it.
+    pipeline.injectText('first question');
+    await waitFor(() => claude.calls.length === 1);
+    await waitFor(() => pipeline.state === 'speaking');
+    expect(tts.spoken).toEqual(['A very long reply.']);
+    expect(router.busy).toBe(true);
+
+    // Wake word fires while speaking AND while the backend turn is still in flight: barge-in.
+    wake.fireOn(1);
+    capture.push(makeFrame());
+    await waitFor(() => pipeline.state === 'listening');
+    expect(tts.cancelCalls).toBe(1);
+
+    // The replacement utterance: speech then 2 silence frames → endpoint → STT.
+    stt.script = ['second question'];
+    vad.script = ['speech', 'silence', 'silence'];
+    capture.push(makeFrame(3277));
+    capture.push(makeFrame());
+    capture.push(makeFrame());
+
+    // The replacement turn reaches the backend — the in-flight turn died first.
+    await waitFor(() => claude.calls.length === 2);
+    await Promise.all(dispatches);
+
+    // Exactly ONE backend interrupt for the barge-in.
+    expect(claude.interrupts).toBe(1);
+    // The replacement dispatched cleanly with the new utterance. (The interrupted turn never
+    // recorded a native session id, so the router legitimately prepends its switch note.)
+    expect(claude.calls[1]?.input.endsWith('second question')).toBe(true);
+    // NO busy refusal anywhere on the wire.
+    const deltaTexts = sent
+      .filter((s) => s.ch === 'agent:event')
+      .map((s) => s.arg as AgentEvent)
+      .filter((e): e is Extract<AgentEvent, { kind: 'text_delta' }> => e.kind === 'text_delta')
+      .map((e) => e.text);
+    expect(deltaTexts).not.toContain('One moment, still working.');
+    // Both turns persisted: the interrupted one (with its streamed text) and the replacement.
+    const turns = sessions.turns(sessions.activeSession().id);
+    expect(turns).toHaveLength(2);
+    expect(turns[0]?.assistantText).toBe('A very long reply. ');
+    expect(turns[1]?.userText).toBe('second question');
+    expect(turns[1]?.assistantText).toBe('Second answer.');
+    // The replacement's reply was spoken (the dead turn's TTS was cancelled, the new one plays).
+    expect(tts.spoken).toEqual(['A very long reply.', 'Second answer.']);
+    expect(router.busy).toBe(false);
   });
 
   it('backend switch mid-session injects the one-line context note on the first switched turn', async () => {

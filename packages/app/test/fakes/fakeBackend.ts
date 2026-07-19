@@ -27,6 +27,10 @@ export class FakeBackend implements AgentBackend {
   readonly id: BackendId;
   /** What `init()` resolves with; mutate to simulate a login/setup failure. */
   initResult: { ok: boolean; problem?: string } = { ok: true };
+  /** When true, `init()` stays pending until `releaseInit()` — simulates a slow live probe. */
+  initHold = false;
+  /** How many times `init()` was called (probe-count assertions). */
+  initCalls = 0;
   /** Every `startTurn` call, in order. */
   readonly calls: { input: string; sessionId: string | null }[] = [];
   /** How many times a handle's `interrupt()` was invoked. */
@@ -34,6 +38,7 @@ export class FakeBackend implements AgentBackend {
 
   private readonly scripts: ScriptedTurn[] = [];
   private turnCount = 0;
+  private initReleases: (() => void)[] = [];
 
   constructor(id: BackendId, scripts: ScriptedTurn[] = []) {
     this.id = id;
@@ -47,7 +52,19 @@ export class FakeBackend implements AgentBackend {
   }
 
   async init(): Promise<{ ok: boolean; problem?: string }> {
+    this.initCalls += 1;
+    if (this.initHold) {
+      await new Promise<void>((resolve) => {
+        this.initReleases.push(resolve);
+      });
+    }
     return this.initResult;
+  }
+
+  /** Resolves every held `init()` call ("the slow probe finished"). */
+  releaseInit(): void {
+    const releases = this.initReleases.splice(0, this.initReleases.length);
+    for (const r of releases) r();
   }
 
   async startTurn(args: {

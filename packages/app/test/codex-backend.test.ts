@@ -338,3 +338,56 @@ describe('CodexBackend — init() probes', () => {
     expect(r.problem).toContain('tools server failed to start');
   });
 });
+
+describe('CodexBackend — init caching (B2)', () => {
+  it('caches a successful init — repeated init() runs the live probes exactly once', async () => {
+    let logins = 0;
+    let healths = 0;
+    const { backend } = makeBackend([], {
+      checkLogin: async () => {
+        logins += 1;
+        return { ok: true };
+      },
+      healthCheck: async () => {
+        healths += 1;
+        return { ok: true };
+      }
+    });
+    expect(await backend.init()).toEqual({ ok: true });
+    expect(await backend.init()).toEqual({ ok: true });
+    expect(await backend.init()).toEqual({ ok: true });
+    expect(logins).toBe(1); // login-status child spawned once
+    expect(healths).toBe(1); // MCP tools/list probe run once
+  });
+
+  it('never caches a failure — the next init() re-probes', async () => {
+    let logins = 0;
+    let loggedIn = false;
+    const { backend } = makeBackend([], {
+      checkLogin: async () => {
+        logins += 1;
+        return loggedIn ? { ok: true } : { ok: false, problem: 'Codex is not logged in — run `codex login` in a terminal.' };
+      },
+      healthCheck: async () => ({ ok: true })
+    });
+    expect((await backend.init()).ok).toBe(false);
+    loggedIn = true; // the user logged in between dispatches
+    expect(await backend.init()).toEqual({ ok: true });
+    expect(logins).toBe(2);
+  });
+
+  it('invalidate() drops the cached readiness and forces fresh probes', async () => {
+    let logins = 0;
+    const { backend } = makeBackend([], {
+      checkLogin: async () => {
+        logins += 1;
+        return { ok: true };
+      },
+      healthCheck: async () => ({ ok: true })
+    });
+    await backend.init();
+    backend.invalidate();
+    await backend.init();
+    expect(logins).toBe(2);
+  });
+});

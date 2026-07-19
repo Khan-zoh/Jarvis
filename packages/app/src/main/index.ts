@@ -54,9 +54,15 @@ interface VoiceRuntime {
 // lock below, because the lock file lives under userData — this also keeps a smoke instance from
 // colliding with a normally-installed running Jarvis.
 // ---------------------------------------------------------------------------------------------
+// The workspace package name is scoped (`@jarvis/app`), which otherwise makes Electron choose
+// `%APPDATA%/@jarvis/app`. Pin both the runtime name and userData path to the public/documented
+// `%APPDATA%/Jarvis` contract used by model provisioning, backups, uninstall docs, and users.
+app.setName('Jarvis');
 const userDataOverride = process.env['JARVIS_USER_DATA_DIR'];
 if (userDataOverride) {
   app.setPath('userData', userDataOverride);
+} else {
+  app.setPath('userData', join(app.getPath('appData'), 'Jarvis'));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -324,8 +330,12 @@ if (!gotLock) {
         wm.broadcast('brain:removed', id);
       },
       // Both backends probed via their real init() (settings-ui task: the accounts section's
-      // status lines + fix hints come from these results, not hard-coded copy).
+      // status lines + fix hints come from these results, not hard-coded copy). init() caches an
+      // ok result (B2), so invalidate first — the settings UI wants a LIVE status (the user may
+      // have logged out since the cache was filled); the fresh ok re-fills the cache for turns.
       accountsStatus: async () => {
+        claude.invalidate();
+        codex.invalidate();
         const [claudeProbe, codexProbe] = await Promise.all([claude.init(), codex.init()]);
         return { claude: claudeProbe, codex: codexProbe };
       },
@@ -404,6 +414,18 @@ if (!gotLock) {
     });
     applyVoiceResult(await voiceManager.init(config.get()));
     config.on('changed', (c) => voiceManager.onConfigChanged(c));
+
+    // Packaged-release smoke seam: opt-in, environment-only timed shutdown through Electron's
+    // normal app.quit() path. This lets CI/audits prove startup AND will-quit child cleanup without
+    // force-killing a process tree. Ignored unless explicitly set to a sane positive duration.
+    const smokeExitMs = Number(process.env['JARVIS_SMOKE_EXIT_MS']);
+    if (Number.isFinite(smokeExitMs) && smokeExitMs >= 1_000 && smokeExitMs <= 60_000) {
+      console.log(`[main] smoke self-exit scheduled in ${smokeExitMs}ms`);
+      setTimeout(() => {
+        console.log('[main] smoke self-exit');
+        app.quit();
+      }, smokeExitMs);
+    }
   });
 
   app.on('window-all-closed', () => {
@@ -520,7 +542,10 @@ async function startVoicePipeline(
     stt,
     tts,
     config: () => config.get(),
-    playWakeSound
+    playWakeSound,
+    // B1: wake-during-speaking must interrupt the in-flight BACKEND turn too, not just TTS —
+    // otherwise the replacement utterance hits the router's busy guard and is refused.
+    onBargeIn: () => conductor.notifyBargeIn()
   });
 
   // Dev --echo flag (Gate A): the pipeline speaks the final transcript straight back. Echo mode

@@ -113,6 +113,14 @@ export class ClaudeBackend implements AgentBackend {
   private readonly now: () => Date;
   private readonly query: typeof query;
 
+  /**
+   * Cached readiness (B2): the live probe is a REAL model turn, so it must run once — not on
+   * every dispatch/distill. Only an ok result is cached; a failure clears the slot so the next
+   * init() re-probes (the user may have just logged in). `invalidate()` forces a fresh probe
+   * (settings-UI status checks, auth changes).
+   */
+  private initPromise: Promise<{ ok: boolean; problem?: string }> | null = null;
+
   constructor(deps: ClaudeBackendDeps) {
     this.getConfig = deps.getConfig;
     this.toolsPaths = deps.toolsPaths;
@@ -125,8 +133,28 @@ export class ClaudeBackend implements AgentBackend {
    * Verifies the Claude Code login by running a minimal one-turn probe and inspecting the stream
    * directly — there is no login-status API, and the terminal result subtype is unreliable
    * (A9). Also asserts the jarvisTools MCP child started (`mcp_servers[].status`).
+   *
+   * Initialized-once: concurrent and repeated calls share ONE probe; an ok result is cached
+   * until `invalidate()`; a failure is never cached.
    */
   async init(): Promise<{ ok: boolean; problem?: string }> {
+    if (!this.initPromise) {
+      const probe = this.probe().then((r) => {
+        if (!r.ok && this.initPromise === probe) this.initPromise = null;
+        return r;
+      });
+      this.initPromise = probe;
+    }
+    return this.initPromise;
+  }
+
+  /** Drops the cached readiness so the next init() runs a fresh live probe. */
+  invalidate(): void {
+    this.initPromise = null;
+  }
+
+  /** The actual A9 live probe (one minimal model turn). Never rejects. */
+  private async probe(): Promise<{ ok: boolean; problem?: string }> {
     const ac = new AbortController();
     try {
       const q = this.query({

@@ -34,6 +34,7 @@ function harness() {
   let flag = false;
   const record: TurnRecord = { id: 'r', at: 'now', backend: 'claude', userText: '', assistantText: 'a', tools: [] };
   const router = {
+    busy: false,
     dispatch: async (text: string, onEvent: (e: AgentEvent) => void): Promise<TurnRecord> => {
       dispatched.push({ text });
       onEvent({ kind: 'done', finalText: 'a' });

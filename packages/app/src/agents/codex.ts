@@ -56,6 +56,13 @@ export class CodexBackend implements AgentBackend {
   private readonly healthCheck: (spec: ToolsMcpSpec) => Promise<ProbeResult>;
   private readonly now: () => Date;
 
+  /**
+   * Cached readiness (B2): init() spawns a login-status child AND a full MCP tools/list probe,
+   * so it must run once — not on every dispatch/distill. Only an ok result is cached; a failure
+   * clears the slot so the next init() re-probes. `invalidate()` forces a fresh probe.
+   */
+  private initPromise: Promise<ProbeResult> | null = null;
+
   constructor(
     private readonly cfg: AppConfig,
     paths: { entryJs: string; dataDir: string },
@@ -88,8 +95,30 @@ export class CodexBackend implements AgentBackend {
     });
   }
 
-  /** Verifies the Codex login AND that the jarvisTools MCP server actually boots. */
+  /**
+   * Verifies the Codex login AND that the jarvisTools MCP server actually boots.
+   * Initialized-once: concurrent and repeated calls share ONE probe; an ok result is cached
+   * until `invalidate()`; a failure is never cached.
+   */
   async init(): Promise<{ ok: boolean; problem?: string }> {
+    if (!this.initPromise) {
+      const probe = this.probe().then((r) => {
+        if (!r.ok && this.initPromise === probe) this.initPromise = null;
+        return r;
+      });
+      this.initPromise = probe;
+    }
+    return this.initPromise;
+  }
+
+  /** Drops the cached readiness so the next init() runs fresh live probes. */
+  invalidate(): void {
+    this.initPromise = null;
+  }
+
+  /** The actual live probes (login-status child + MCP tools/list). Never rejects by contract of
+   * checkLogin/healthCheck (both resolve with { ok:false } on failure). */
+  private async probe(): Promise<ProbeResult> {
     const login = await this.checkLogin();
     if (!login.ok) return login;
     const health = await this.healthCheck(this.toolsSpec);

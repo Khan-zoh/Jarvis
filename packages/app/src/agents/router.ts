@@ -142,10 +142,36 @@ export class AgentRouter {
     const offTheRecord = this.offTheRecord;
     this.offTheRecord = false;
     this.inFlight = true;
+
+    // Pre-turn cancellation (B2): the handle is live from the very start of the dispatch, so an
+    // interrupt() during init/context — before the backend turn exists — flags `cancelled` and
+    // the turn never starts. Once the real handle exists, interrupt() also forwards to it.
+    let cancelled = false;
+    let realHandle: TurnHandle | null = null;
+    this.currentHandle = {
+      interrupt: async (): Promise<void> => {
+        cancelled = true;
+        await realHandle?.interrupt();
+      }
+    };
+    /** Emits the canonical cancelled error event and returns a synthetic unpersisted record. */
+    const cancelledRecord = (): TurnRecord => {
+      onEvent({ kind: 'error', message: 'cancelled' });
+      return {
+        id: randomUUID(),
+        at: new Date().toISOString(),
+        backend: backendId,
+        userText: route.cleanedInput,
+        assistantText: '',
+        tools: []
+      };
+    };
+
     try {
       const backend = this.backends[backendId];
 
       const initResult = await backend.init();
+      if (cancelled) return cancelledRecord();
       if (!initResult.ok) {
         const message = initResult.problem ?? `The ${backendId} backend is not available.`;
         onEvent({ kind: 'error', message });
@@ -169,6 +195,12 @@ export class AgentRouter {
           )
         )
       );
+      // Last pre-turn cancellation check: interrupt() may have landed while init resolved from
+      // cache instantly but the context providers were still running. Everything from here to
+      // startTurn is synchronous, so this single check covers the whole remaining pre-turn
+      // phase — the backend never sees the turn, and no session is created for it.
+      if (cancelled) return cancelledRecord();
+
       const preamble = contributions.filter((c): c is string => typeof c === 'string' && c.length > 0);
       let input =
         preamble.length > 0
@@ -199,7 +231,9 @@ export class AgentRouter {
         sessionId: nativeId,
         onEvent: forward
       });
-      this.currentHandle = handle;
+      realHandle = handle;
+      // interrupt() raced with startTurn itself: forward it now so the just-started turn dies.
+      if (cancelled) await handle.interrupt();
 
       let finalText: string;
       try {

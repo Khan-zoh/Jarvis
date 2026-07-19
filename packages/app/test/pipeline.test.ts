@@ -26,6 +26,7 @@ interface Rig {
   utterances: string[];
   micLevels: number[];
   wakeSounds: number;
+  bargeIns: number;
   config: AppConfig;
 }
 
@@ -51,6 +52,7 @@ function makeRig(configPatch?: Partial<AppConfig['voice']>): Rig {
     utterances: [],
     micLevels: [],
     wakeSounds: 0,
+    bargeIns: 0,
     config
   };
 
@@ -63,6 +65,9 @@ function makeRig(configPatch?: Partial<AppConfig['voice']>): Rig {
     config: () => config,
     playWakeSound: () => {
       rig.wakeSounds += 1;
+    },
+    onBargeIn: () => {
+      rig.bargeIns += 1;
     },
     makeEndpointer: testEndpointer
   });
@@ -169,6 +174,20 @@ describe('VoicePipeline', () => {
     expect(rig.pipeline.state).toBe('listening');
 
     expect(rig.states).toEqual(['thinking', 'speaking', 'listening']);
+    // B1: barge-in notified the backend owner exactly once (so the in-flight router turn can be
+    // interrupted, not just TTS).
+    expect(rig.bargeIns).toBe(1);
+  });
+
+  it('cold wake from idle does NOT fire the barge-in hook', async () => {
+    const rig = makeRig();
+    rig.wake.fireOn(1);
+    await rig.pipeline.start();
+
+    rig.capture.push(makeFrame());
+    await flush();
+    expect(rig.pipeline.state).toBe('listening');
+    expect(rig.bargeIns).toBe(0); // nothing was in flight — no backend interrupt requested
   });
 
   it('listen timeout with no speech returns to idle and never calls STT', async () => {

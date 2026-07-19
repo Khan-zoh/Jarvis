@@ -1,11 +1,14 @@
 import { randomBytes, createHash } from 'node:crypto';
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync
 } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -29,6 +32,30 @@ import type {
  * Cross-process safety (A8): BOTH processes may write. SQLite runs in WAL mode with a
  * busy-timeout; every index mutation happens inside an IMMEDIATE transaction; every vault
  * file write is atomic (temp file + rename). The engine is safe wherever it is instantiated.
+ *
+ * WAL + IMMEDIATE only protect a single SQLite transaction, but a LOGICAL mutation spans
+ * file-IO + embedding + the DB txn and is NOT atomic on its own. So every logical mutating
+ * operation (add / append / remove / consolidate / reindex) runs inside a cross-process VAULT
+ * WRITE LOCK (`withVaultLock`, an exclusive-create lock file at `<indexDir>/vault.lock`, same
+ * acquire/stale-break protocol proven in google/tokenCodec.ts). The protocol is:
+ *   acquire → RE-READ current state from disk/db (under the lock) → mutate → write file
+ *   (temp+rename) → DB txn → release.
+ * Re-reading under the lock is what makes concurrent appends compose instead of last-writer-wins:
+ * the loser blocks, then reads the winner's committed body before appending. Reads
+ * (search/read/recent/profile) stay lock-free — WAL gives them a consistent snapshot.
+ *
+ * Crash invariant (order of file-vs-DB chosen so a crash between them self-heals): the markdown
+ * VAULT IS THE SOURCE OF TRUTH; the SQLite index is a derived cache mutated LAST. Every op writes
+ * (or deletes) the vault file BEFORE its DB txn, so a crash between the two leaves only a stale
+ * index (a note missing/extra/old in the DB) — never a lost or corrupted note — and reindex()
+ * (itself locked) rebuilds the index from the vault to reconcile.
+ *
+ * Embedding cost: embedding runs INSIDE the lock for append/merge/createNote/reindex. Acceptable
+ * at personal scale (a handful of writers, a small vault) and documented rather than optimized;
+ * add() embeds its candidate BEFORE acquiring (the candidate content is fixed, so no re-validation
+ * is needed) to keep the common path's lock window short. consolidate() runs its (slow) distiller
+ * LLM calls OUTSIDE the lock and only applies the resulting removes/creates under the lock,
+ * re-reading each note first and skipping any a concurrent writer already removed.
  *
  * Vault layout: `notes/<slug>-<shortid>.md` (curated), `memory/<slug>-<shortid>.md`
  * (consolidated), `captured/YYYY-MM-DD-<slug>-<shortid>.md` — ONE FILE PER CAPTURED ITEM
@@ -109,6 +136,8 @@ function normalizeBody(content: string): string {
 }
 
 /* ------------------------------------ helpers -------------------------------------- */
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 function slugify(title: string): string {
   const slug = title
@@ -239,6 +268,7 @@ export class BrainStore {
   private readonly dedupThreshold: number;
   private readonly profileTokenBudget: number;
   private readonly db: Database;
+  private readonly lockPath: string;
   private lastTsMs = 0;
 
   constructor(cfg: BrainStoreConfig) {
@@ -250,6 +280,8 @@ export class BrainStore {
       mkdirSync(join(this.vaultDir, dir), { recursive: true });
     }
     mkdirSync(cfg.indexDir, { recursive: true });
+    // Cross-process vault write lock (A8) — lives in the index dir, never in the vault.
+    this.lockPath = join(cfg.indexDir, 'vault.lock');
     this.db = new Database(join(cfg.indexDir, 'index.sqlite'));
     // A8: WAL + busy-timeout; every write below runs in an IMMEDIATE transaction.
     this.db.pragma('journal_mode = WAL');
@@ -285,41 +317,52 @@ export class BrainStore {
 
   /* ------------------------------------ reindex ------------------------------------ */
 
-  /** Rebuild the whole index from the vault's markdown files. */
+  /**
+   * Rebuild the whole index from the vault's markdown files. Held under the vault write lock so
+   * the vault snapshot (readdir + readFile), the embed, and the destructive txn cannot interleave
+   * with a concurrent write. The vault is read AFTER the lock is acquired so the snapshot is
+   * consistent; embedding runs inside the lock (acceptable at personal scale — see class doc).
+   */
   async reindex(): Promise<{ notes: number }> {
-    const notes: Note[] = [];
-    for (const dir of ['notes', 'captured', 'memory']) {
-      const abs = join(this.vaultDir, dir);
-      if (!existsSync(abs)) continue;
-      for (const name of readdirSync(abs).sort()) {
-        if (!name.endsWith('.md')) continue;
-        const relPath = `${dir}/${name}`;
-        const { data, body } = parseNoteFile(readFileSync(join(this.vaultDir, relPath), 'utf8'));
-        notes.push({
-          id: idFromRelPath(relPath),
-          path: relPath,
-          title: data.title,
-          body,
-          tags: data.tags,
-          source: data.source,
-          created: data.created,
-          updated: data.updated
-        });
+    return this.withVaultLock(async () => {
+      const notes: Note[] = [];
+      for (const dir of ['notes', 'captured', 'memory']) {
+        const abs = join(this.vaultDir, dir);
+        if (!existsSync(abs)) continue;
+        for (const name of readdirSync(abs).sort()) {
+          if (!name.endsWith('.md')) continue;
+          const relPath = `${dir}/${name}`;
+          const { data, body } = parseNoteFile(readFileSync(join(this.vaultDir, relPath), 'utf8'));
+          notes.push({
+            id: idFromRelPath(relPath),
+            path: relPath,
+            title: data.title,
+            body,
+            tags: data.tags,
+            source: data.source,
+            created: data.created,
+            updated: data.updated
+          });
+        }
       }
-    }
-    const chunkLists = notes.map((n) => chunkText(embeddingText(n.title, n.body)));
-    const vectors = await this.embedder.embed(chunkLists.flat());
-    const tx = this.db.transaction(() => {
-      this.db.exec('DELETE FROM chunks_fts; DELETE FROM chunks; DELETE FROM notes;');
-      let cursor = 0;
-      for (let i = 0; i < notes.length; i++) {
-        const chunks = chunkLists[i]!;
-        this.insertNoteWithChunks(notes[i]!, chunks, vectors.slice(cursor, cursor + chunks.length));
-        cursor += chunks.length;
-      }
+      const chunkLists = notes.map((n) => chunkText(embeddingText(n.title, n.body)));
+      const vectors = await this.embedder.embed(chunkLists.flat());
+      const tx = this.db.transaction(() => {
+        this.db.exec('DELETE FROM chunks_fts; DELETE FROM chunks; DELETE FROM notes;');
+        let cursor = 0;
+        for (let i = 0; i < notes.length; i++) {
+          const chunks = chunkLists[i]!;
+          this.insertNoteWithChunks(
+            notes[i]!,
+            chunks,
+            vectors.slice(cursor, cursor + chunks.length)
+          );
+          cursor += chunks.length;
+        }
+      });
+      tx.immediate();
+      return { notes: notes.length };
     });
-    tx.immediate();
-    return { notes: notes.length };
   }
 
   /* ------------------------------------- search ------------------------------------ */
@@ -438,23 +481,34 @@ export class BrainStore {
    * file per item, A8) for auto — and indexes it.
    */
   async add(note: Omit<Note, 'id' | 'created' | 'updated' | 'path'>): Promise<Note> {
+    // Embed the candidate BEFORE the lock — its content is fixed, so no re-validation is needed
+    // and the common no-dedup path holds the lock only for the file write + DB txn.
     const chunks = chunkText(embeddingText(note.title, note.body));
     const vectors = await this.embedder.embed(chunks);
-    const nearest = this.nearestChunk(normalizedMean(vectors));
-    if (nearest && nearest.score >= this.dedupThreshold) {
-      return this.mergeIntoExisting(nearest.noteId, note);
-    }
-    return this.createNote(note.source === 'auto' ? 'captured' : 'notes', note);
+    const mean = normalizedMean(vectors);
+    return this.withVaultLock(async () => {
+      // nearestChunk reads the CURRENT index under the lock, so a note another writer just added
+      // is a dedup candidate here rather than a silent duplicate.
+      const nearest = this.nearestChunk(mean);
+      if (nearest && nearest.score >= this.dedupThreshold) {
+        return this.mergeIntoExisting(nearest.noteId, note);
+      }
+      return this.createNote(note.source === 'auto' ? 'captured' : 'notes', note);
+    });
   }
 
   /** Append text to an existing note's body (with a blank-line separator). */
   async append(id: string, text: string): Promise<Note> {
-    const note = await this.read(id);
-    if (!note) throw new Error(`note not found: ${id}`);
-    note.body = note.body ? `${note.body}\n\n${normalizeBody(text)}` : normalizeBody(text);
-    note.updated = this.now();
-    await this.persist(note);
-    return note;
+    return this.withVaultLock(async () => {
+      // Re-read UNDER the lock: the loser of a concurrent append reads the winner's committed
+      // body here, so both appends survive instead of last-writer-wins.
+      const note = await this.read(id);
+      if (!note) throw new Error(`note not found: ${id}`);
+      note.body = note.body ? `${note.body}\n\n${normalizeBody(text)}` : normalizeBody(text);
+      note.updated = this.now();
+      await this.persist(note);
+      return note;
+    });
   }
 
   async read(id: string): Promise<Note | null> {
@@ -472,6 +526,15 @@ export class BrainStore {
   }
 
   async remove(id: string): Promise<void> {
+    await this.withVaultLock(() => this.removeUnlocked(id));
+  }
+
+  /**
+   * Delete a note's vault file then its index rows. File first, DB txn LAST (crash invariant):
+   * a crash between leaves only an orphan index row, which reindex() reconciles. MUST run under
+   * the vault write lock (called directly by consolidate, which already holds it).
+   */
+  private removeUnlocked(id: string): void {
     const row = this.db.prepare('SELECT path FROM notes WHERE id = ?').get(id) as
       | { path: string }
       | undefined;
@@ -498,7 +561,10 @@ export class BrainStore {
    * returned by the distiller replaces profile.md, clamped to the profile token budget.
    */
   async consolidate(distill: DistillFn): Promise<ConsolidationReport> {
-    const report: ConsolidationReport = { merged: 0, promoted: 0, pruned: 0 };
+    // Phase 1 + 2 (LOCK-FREE): snapshot the captured set, group it, and run the (slow) distiller
+    // LLM calls. Holding the vault lock across an unbounded run of LLM calls would either block
+    // every writer for minutes or let the lock go stale and be broken mid-op, so distillation
+    // stays outside the lock and only the fast file/DB mutations run inside it.
     const rows = this.db
       .prepare("SELECT * FROM notes WHERE path LIKE 'captured/%' ORDER BY created, id")
       .all() as NoteRow[];
@@ -506,40 +572,100 @@ export class BrainStore {
     const groups = this.groupNearDuplicates(captured);
     const profile = await this.profile();
     let profileUpdate: string | null = null;
-
+    const plan: { decision: DistillDecision; group: Note[] }[] = [];
     for (const group of groups) {
       const decision = await distill({ notes: group, profile });
       if (decision.profile !== undefined) profileUpdate = decision.profile;
-      switch (decision.action) {
-        case 'keep':
-          break;
-        case 'prune':
-          for (const n of group) await this.remove(n.id);
-          report.pruned += group.length;
-          break;
-        case 'merge':
-        case 'promote': {
-          const replacement = buildReplacement(group, decision);
-          for (const n of group) await this.remove(n.id);
-          await this.createNote(
-            decision.action === 'merge' ? 'captured' : 'memory',
-            replacement,
-            replacement.created
-          );
-          if (decision.action === 'merge') report.merged += 1;
-          else report.promoted += 1;
-          break;
-        }
-      }
+      plan.push({ decision, group });
     }
 
-    if (profileUpdate !== null) {
-      this.writeFileAtomic(join(this.vaultDir, 'profile.md'), this.clampProfile(profileUpdate));
-    }
-    return report;
+    // Phase 3 (LOCKED): apply. Re-read each note under the lock and act only on survivors, so a
+    // note a concurrent writer already removed is skipped rather than resurrected or double-counted.
+    return this.withVaultLock(async () => {
+      const report: ConsolidationReport = { merged: 0, promoted: 0, pruned: 0 };
+      for (const { decision, group } of plan) {
+        const live: Note[] = [];
+        for (const n of group) {
+          const cur = await this.read(n.id);
+          if (cur) live.push(cur);
+        }
+        if (live.length === 0) continue;
+        switch (decision.action) {
+          case 'keep':
+            break;
+          case 'prune':
+            for (const n of live) this.removeUnlocked(n.id);
+            report.pruned += live.length;
+            break;
+          case 'merge':
+          case 'promote': {
+            const replacement = buildReplacement(live, decision);
+            for (const n of live) this.removeUnlocked(n.id);
+            await this.createNote(
+              decision.action === 'merge' ? 'captured' : 'memory',
+              replacement,
+              replacement.created
+            );
+            if (decision.action === 'merge') report.merged += 1;
+            else report.promoted += 1;
+            break;
+          }
+        }
+      }
+
+      if (profileUpdate !== null) {
+        this.writeFileAtomic(join(this.vaultDir, 'profile.md'), this.clampProfile(profileUpdate));
+      }
+      return report;
+    });
   }
 
   /* ----------------------------------- internals ----------------------------------- */
+
+  /**
+   * Runs `fn` while holding the cross-process VAULT WRITE LOCK (A8) — an exclusive-create lock
+   * file, same acquire/stale-break protocol as google/tokenCodec.ts withTokenLock. Contenders
+   * retry with backoff; a lock older than `staleMs` (a crashed writer) is broken. Always released
+   * in `finally`. Not re-entrant: internal callers that already hold it (consolidate's apply phase)
+   * must use the *Unlocked / private (createNote/persist) cores, never the public methods.
+   */
+  private async withVaultLock<T>(fn: () => T | Promise<T>): Promise<T> {
+    const lock = this.lockPath;
+    mkdirSync(dirname(lock), { recursive: true });
+    const delayMs = 25;
+    // Generous stale threshold: reindex embeds the whole vault inside the lock and can legitimately
+    // run for many seconds. 60s clears that while still reclaiming a lock left by a crashed writer.
+    const staleMs = 60_000;
+    // Retry ceiling comfortably exceeds staleMs, so a contender always eventually acquires (holder
+    // released) or breaks a stale lock rather than timing out under a slow-but-live holder.
+    const retries = 5000;
+
+    let fd: number | null = null;
+    for (let attempt = 0; attempt < retries && fd === null; attempt++) {
+      try {
+        fd = openSync(lock, 'wx'); // exclusive create; throws EEXIST if held
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        try {
+          if (Date.now() - statSync(lock).mtimeMs > staleMs) {
+            rmSync(lock, { force: true }); // break a stale lock, then retry immediately
+            continue;
+          }
+        } catch {
+          continue; // lock vanished between open and stat — retry immediately
+        }
+        await sleep(delayMs);
+      }
+    }
+    if (fd === null) throw new Error('brain vault lock: timed out acquiring lock');
+
+    try {
+      return await fn();
+    } finally {
+      closeSync(fd);
+      rmSync(lock, { force: true });
+    }
+  }
 
   private now(): string {
     let t = Date.now();
