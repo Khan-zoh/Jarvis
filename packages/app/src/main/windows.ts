@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   app,
   BrowserWindow,
@@ -28,6 +29,26 @@ export interface Size {
 export const OVERLAY_SIZE: Size = { width: 520, height: 120 };
 /** Gap between the overlay's bottom edge and the bottom of the work area. */
 export const OVERLAY_BOTTOM_MARGIN = 48;
+
+export interface WindowAssetPaths {
+  rendererHtml: string;
+  preload: string;
+}
+
+/**
+ * Resolve built renderer/preload assets relative to the ESM main bundle. `__dirname` does not
+ * exist in the packaged ESM runtime; deriving it from `import.meta.url` works in dev and inside
+ * Electron's app.asar filesystem.
+ */
+export function resolveWindowAssetPaths(mainModuleUrl: string): WindowAssetPaths {
+  const mainDir = dirname(fileURLToPath(mainModuleUrl));
+  return {
+    rendererHtml: join(mainDir, '../renderer/index.html'),
+    preload: join(mainDir, '../preload/index.mjs')
+  };
+}
+
+const WINDOW_ASSETS = resolveWindowAssetPaths(import.meta.url);
 
 /**
  * Pure geometry: centre `size` horizontally in `workArea` and pin it near the bottom. Extracted so
@@ -67,7 +88,7 @@ function loadRenderer(win: BrowserWindow, view?: 'overlay'): void {
     void win.loadURL(view ? `${devUrl}?view=${view}` : devUrl);
   } else {
     void win.loadFile(
-      join(__dirname, '../renderer/index.html'),
+      WINDOW_ASSETS.rendererHtml,
       view ? { query: { view } } : undefined
     );
   }
@@ -186,7 +207,7 @@ export class WindowManager {
       show: false,
       backgroundColor: '#00000000',
       webPreferences: {
-        preload: join(__dirname, '../preload/index.mjs'),
+        preload: WINDOW_ASSETS.preload,
         contextIsolation: true,
         nodeIntegration: false,
         // sandbox: true is DESIRED but NOT enabled (amendments deferred item — attempted here).
@@ -247,7 +268,7 @@ export class WindowManager {
       show: false,
       backgroundColor: '#ffffff',
       webPreferences: {
-        preload: join(__dirname, '../preload/index.mjs'),
+        preload: WINDOW_ASSETS.preload,
         contextIsolation: true,
         nodeIntegration: false,
         // sandbox: true is DESIRED but NOT enabled (amendments deferred item — attempted here).

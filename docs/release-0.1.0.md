@@ -15,7 +15,7 @@ the original packaging-hardening record as history.
   installer, native ABI checks, brain-enabled packaged startup, and checksum).
 - Production dependency audit: **0 vulnerabilities**. `onnxruntime-node` is pinned to 1.21.1 to
   avoid the high-severity `adm-zip` advisory introduced in its newer installer dependency.
-- Tests: **629 passed** — app 458, tools-mcp 171.
+- Tests: **630 passed** — app 459, tools-mcp 171.
 - All ten core/brain model and binary artifacts matched their pinned SHA-256 values.
 - The scoped workspace package name previously made Electron choose `%APPDATA%/@jarvis/app`.
   Startup now explicitly enforces the documented `%APPDATA%/Jarvis` user-data contract.
@@ -32,8 +32,11 @@ the original packaging-hardening record as history.
 - The final NSIS installer then installed silently to the normal per-user location with exit 0;
   the installed executable passed the same brain-enabled smoke, desktop and Start-menu shortcuts
   exist, the uninstaller is present, and no helper processes survived shutdown.
+- Fixed packaged visible-window startup under ESM: `WindowManager` now resolves its renderer and
+  preload paths from `import.meta.url` instead of the unavailable CommonJS `__dirname`. The release
+  smoke now deliberately opens the main window so this path is a permanent release gate.
 - Installer: `dist-package/Jarvis Setup 0.1.0.exe`, 320,623,416 bytes.
-- SHA-256: `02c6b934bbbba27f31d8726dad27a860367eb70511bc9ded1a8ef28591fdf3cb`.
+- SHA-256: `c5adb0b1e6d1f5a8161d74d8496414b81325d6c146f78e676be3b3ad773c7001`.
 - Signature: `NotSigned` (accepted for this trusted private beta).
 - Local machine provisioning: verified models copied to `%APPDATA%/Jarvis/models`; hybrid second
   brain enabled against `D:\JarvisBrain`; timestamped backups stored under `D:\JarvisBackups`.
