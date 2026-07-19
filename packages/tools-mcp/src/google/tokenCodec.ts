@@ -91,11 +91,15 @@ export function writeStoredAuth(dataDir: string, auth: StoredAuth, cipher: Token
   renameSync(tmp, file);
 }
 
-/** Deletes the token file and any stale lock. Idempotent. */
+/**
+ * Deletes the token file. Idempotent. Deliberately does NOT touch the lock file (B6): the lock's
+ * lifecycle belongs to `withTokenLock`, which creates and removes it in its own `finally`. Deleting
+ * a live lock from here — this runs while `disconnect` still holds it — would let another writer
+ * create a fresh lock and overlap the holder.
+ */
 export function deleteStoredAuth(dataDir: string): void {
-  const { file, lock } = tokenPaths(dataDir);
+  const { file } = tokenPaths(dataDir);
   rmSync(file, { force: true });
-  rmSync(lock, { force: true });
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -114,7 +118,10 @@ export async function withTokenLock<T>(
   mkdirSync(dirname(lock), { recursive: true });
   const retries = opts.retries ?? 100;
   const delayMs = opts.delayMs ?? 20;
-  const staleMs = opts.staleMs ?? 10_000;
+  // B6: must exceed the longest single locked operation. The DPAPI PowerShell codec times out at
+  // 20s (pluginConfig.defaultSyncPs), so a valid writer can legitimately hold the lock ~20s; a
+  // threshold below that would let a contender break a live lock and corrupt a write. 30s clears it.
+  const staleMs = opts.staleMs ?? 30_000;
 
   let fd: number | null = null;
   for (let attempt = 0; attempt < retries && fd === null; attempt++) {

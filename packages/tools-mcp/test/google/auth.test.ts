@@ -1,12 +1,18 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createGoogleAuthManager,
   GOOGLE_SCOPES,
+  OAUTH_REDIRECT_PATH,
+  startHttpLoopback,
+  type AuthUrlOpts,
+  type GetTokenArg,
   type GoogleAuthDeps,
   type GoogleClients,
+  type LoopbackOptions,
   type LoopbackServer,
   type OAuth2ClientLike
 } from '../../src/google/auth.js';
@@ -23,8 +29,9 @@ type Tokens = Record<string, unknown>;
 class FakeClient implements OAuth2ClientLike {
   credentials: Tokens = {};
   redirectUri: string;
-  lastAuthOpts: { access_type?: string; scope: string[]; prompt?: string } | null = null;
+  lastAuthOpts: AuthUrlOpts | null = null;
   exchangedCode: string | null = null;
+  exchangedVerifier: string | null = null;
   revoked = false;
   private listeners: ((t: Tokens) => void)[] = [];
 
@@ -37,16 +44,19 @@ class FakeClient implements OAuth2ClientLike {
     this.redirectUri = redirectUri;
   }
 
-  generateAuthUrl(opts: { access_type?: string; scope: string[]; prompt?: string }): string {
+  generateAuthUrl(opts: AuthUrlOpts): string {
     this.lastAuthOpts = opts;
     const q = new URLSearchParams({
       redirect_uri: this.redirectUri,
       scope: opts.scope.join(' ')
     });
+    if (opts.state) q.set('state', opts.state);
     return `https://accounts.google.com/o/oauth2/v2/auth?${q.toString()}`;
   }
-  async getToken(code: string): Promise<{ tokens: Tokens }> {
+  async getToken(arg: GetTokenArg): Promise<{ tokens: Tokens }> {
+    const code = typeof arg === 'string' ? arg : arg.code;
     this.exchangedCode = code;
+    this.exchangedVerifier = typeof arg === 'string' ? null : (arg.codeVerifier ?? null);
     return { tokens: this.tokenFor(code) };
   }
   setCredentials(t: Tokens): void {
@@ -68,6 +78,7 @@ class FakeClient implements OAuth2ClientLike {
 function makeDeps(dir: string, overrides: Partial<GoogleAuthDeps> = {}) {
   const created: FakeClient[] = [];
   const openedUrls: string[] = [];
+  const loopbackOpts: LoopbackOptions[] = [];
   const deps: GoogleAuthDeps = {
     dataDir: dir,
     cipher: fakeCipher,
@@ -83,16 +94,19 @@ function makeDeps(dir: string, overrides: Partial<GoogleAuthDeps> = {}) {
       created.push(c);
       return c;
     },
-    startLoopback: async (): Promise<LoopbackServer> => ({
-      port: 54321,
-      waitForCode: async () => 'auth-code-1',
-      close: () => {}
-    }),
+    startLoopback: async (opts): Promise<LoopbackServer> => {
+      loopbackOpts.push(opts);
+      return {
+        port: 54321,
+        waitForCode: async () => 'auth-code-1',
+        close: () => {}
+      };
+    },
     fetchEmail: async () => 'me@example.com',
     makeClients: (client) => ({ __client: client }) as unknown as GoogleClients,
     ...overrides
   };
-  return { deps, created, openedUrls };
+  return { deps, created, openedUrls, loopbackOpts };
 }
 
 const waitFor = async (pred: () => boolean, ms = 2000): Promise<void> => {
@@ -224,5 +238,154 @@ describe('disconnect', () => {
     expect(revoker.revoked).toBe(true);
     expect(mgr.status()).toEqual({ connected: false, email: null });
     expect(mgr.getClients()).toBeNull();
+  });
+
+  it('a refresh racing disconnect cannot resurrect the deleted file (B6)', async () => {
+    const { deps, created } = makeDeps(dir);
+    // Gate every revoke so disconnect can be held open mid-critical-section, under the lock.
+    let releaseRevoke!: () => void;
+    const revokeGate = new Promise<void>((r) => (releaseRevoke = r));
+    const origCreate = deps.createOAuth2Client!;
+    deps.createOAuth2Client = (id, sec, uri) => {
+      const c = origCreate(id, sec, uri) as FakeClient;
+      c.revokeCredentials = async () => {
+        c.revoked = true;
+        await revokeGate;
+        return {};
+      };
+      return c;
+    };
+    const mgr = createGoogleAuthManager(deps);
+    await mgr.beginAuthFlow('cid', 'secret');
+    const clientA = created[0]!;
+    const lockPath = tokenPaths(dir).lock;
+
+    // Disconnect acquires the lock, reads, and parks inside revoke.
+    const disconnecting = mgr.disconnect();
+    await waitFor(() => existsSync(lockPath));
+
+    // Refresh fires mid-disconnect. Its locked section must queue behind disconnect's lock, then
+    // see the file already gone and bail — NOT re-persist the credentials.
+    clientA.emitTokens({ access_token: 'at-ZOMBIE', refresh_token: 'rt-ZOMBIE' });
+    await new Promise((r) => setTimeout(r, 60)); // let the refresh reach lock contention
+
+    releaseRevoke();
+    await disconnecting;
+
+    // Wait for the refresh's queued lock attempt to fully drain (lock created then released).
+    await waitFor(() => !existsSync(lockPath));
+    await new Promise((r) => setTimeout(r, 100)); // settle any straggler write
+    expect(readStoredAuth(dir, fakeCipher)).toBeNull(); // file stays gone
+    expect(existsSync(tokenPaths(dir).file)).toBe(false);
+    expect(mgr.status()).toEqual({ connected: false, email: null });
+  });
+});
+
+describe('B5 — state + PKCE on the auth flow', () => {
+  it('mints a random state, puts it in the auth URL, and hands it to the loopback server', async () => {
+    const { deps, created, openedUrls, loopbackOpts } = makeDeps(dir);
+    await createGoogleAuthManager(deps).beginAuthFlow('cid', 'secret');
+
+    const opts = created[0]!.lastAuthOpts!;
+    expect(typeof opts.state).toBe('string');
+    expect(opts.state!.length).toBeGreaterThanOrEqual(32); // 32 random bytes, base64url
+    expect(openedUrls[0]).toContain(`state=${opts.state}`);
+    // The loopback server validates against the SAME state, on the exact redirect path.
+    expect(loopbackOpts[0]).toEqual({ redirectPath: OAUTH_REDIRECT_PATH, expectedState: opts.state });
+  });
+
+  it('uses a fresh state per flow', async () => {
+    const { deps, created } = makeDeps(dir);
+    const mgr = createGoogleAuthManager(deps);
+    await mgr.beginAuthFlow('cid', 'secret');
+    await mgr.beginAuthFlow('cid', 'secret');
+    expect(created[0]!.lastAuthOpts!.state).not.toBe(created[1]!.lastAuthOpts!.state);
+  });
+
+  it('sends an S256 PKCE challenge matching the verifier used at token exchange', async () => {
+    const { deps, created } = makeDeps(dir);
+    await createGoogleAuthManager(deps).beginAuthFlow('cid', 'secret');
+
+    const client = created[0]!;
+    const opts = client.lastAuthOpts!;
+    expect(opts.code_challenge_method).toBe('S256');
+    expect(client.exchangedVerifier).toBeTruthy();
+    const expected = createHash('sha256').update(client.exchangedVerifier!).digest('base64url');
+    expect(opts.code_challenge).toBe(expected);
+  });
+
+  it('does not exchange a code and persists nothing when the loopback rejects (state mismatch)', async () => {
+    const { deps, created } = makeDeps(dir, {
+      startLoopback: async () => ({
+        port: 54321,
+        waitForCode: async () => {
+          throw new Error('Google authorization failed: state mismatch');
+        },
+        close: () => {}
+      })
+    });
+    const mgr = createGoogleAuthManager(deps);
+    await expect(mgr.beginAuthFlow('cid', 'secret')).rejects.toThrow(/state mismatch/);
+    expect(created[0]!.exchangedCode).toBeNull(); // no token exchange happened
+    expect(mgr.status()).toEqual({ connected: false, email: null }); // nothing persisted
+  });
+});
+
+describe('startHttpLoopback — real HTTP callback validation (B5)', () => {
+  const get = (port: number, pathAndQuery: string): Promise<Response> =>
+    fetch(`http://127.0.0.1:${port}${pathAndQuery}`);
+
+  it('accepts the callback only with the matching state (happy path)', async () => {
+    const server = await startHttpLoopback({ redirectPath: '/', expectedState: 'S-GOOD' });
+    try {
+      const res = await get(server.port, '/?code=code-1&state=S-GOOD');
+      expect(res.status).toBe(200);
+      await expect(server.waitForCode()).resolves.toBe('code-1');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('rejects a code with a mismatched state: 400, flow rejected', async () => {
+    const server = await startHttpLoopback({ redirectPath: '/', expectedState: 'S-GOOD' });
+    try {
+      const pending = server.waitForCode();
+      const res = await get(server.port, '/?code=injected&state=S-EVIL');
+      expect(res.status).toBe(400);
+      await expect(pending).rejects.toThrow(/state mismatch/);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('rejects a code with NO state: 400, flow rejected', async () => {
+    const server = await startHttpLoopback({ redirectPath: '/', expectedState: 'S-GOOD' });
+    try {
+      const pending = server.waitForCode();
+      const res = await get(server.port, '/?code=injected');
+      expect(res.status).toBe(400);
+      await expect(pending).rejects.toThrow(/state mismatch/);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('404s any path other than the exact redirect path, leaving the flow pending', async () => {
+    const server = await startHttpLoopback({ redirectPath: '/', expectedState: 'S-GOOD' });
+    try {
+      const res = await get(server.port, '/callback?code=injected&state=S-GOOD');
+      expect(res.status).toBe(404);
+      // The flow is neither resolved nor rejected by the off-path hit.
+      const outcome = await Promise.race([
+        server.waitForCode().then(
+          () => 'settled',
+          () => 'settled'
+        ),
+        new Promise((r) => setTimeout(() => r('pending'), 150))
+      ]);
+      expect(outcome).toBe('pending');
+    } finally {
+      server.close();
+    }
   });
 });

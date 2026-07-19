@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -86,5 +86,58 @@ describe('withTokenLock — single-writer safety (§A3)', () => {
     ).rejects.toThrow(/timed out/);
     release();
     await held;
+  });
+});
+
+describe('lock lifecycle stays with withTokenLock (B6)', () => {
+  it('deleteStoredAuth removes the token file but never the lock file', () => {
+    writeStoredAuth(dir, sampleAuth, fakeCipher);
+    const { lock } = tokenPaths(dir);
+    writeFileSync(lock, ''); // simulate a writer currently holding the lock
+    deleteStoredAuth(dir);
+    expect(readStoredAuth(dir, fakeCipher)).toBeNull(); // token file gone
+    expect(existsSync(lock)).toBe(true); // live lock untouched — holder still exclusive
+  });
+
+  it('holding the lock across a delete keeps contenders out until release', async () => {
+    writeStoredAuth(dir, sampleAuth, fakeCipher);
+    let release!: () => void;
+    const held = withTokenLock(dir, async () => {
+      deleteStoredAuth(dir); // in-lock delete (what disconnect does) must not free the lock
+      await new Promise<void>((r) => (release = r));
+    });
+    // While the deleting writer still holds the lock, a contender must NOT get in.
+    await expect(
+      withTokenLock(dir, () => {}, { retries: 3, delayMs: 5, staleMs: 60_000 })
+    ).rejects.toThrow(/timed out/);
+    release();
+    await held;
+    // After release, the lock is acquirable again.
+    await expect(withTokenLock(dir, () => 'ok')).resolves.toBe('ok');
+  });
+});
+
+describe('stale-lock threshold (B6)', () => {
+  const ageLock = (ageMs: number): string => {
+    writeStoredAuth(dir, sampleAuth, fakeCipher); // ensures google/ dir exists
+    const { lock } = tokenPaths(dir);
+    writeFileSync(lock, '');
+    const t = (Date.now() - ageMs) / 1000;
+    utimesSync(lock, t, t);
+    return lock;
+  };
+
+  it('does NOT break a lock younger than 30s — covers the 20s DPAPI ceiling', async () => {
+    // A writer legitimately inside a 20s DPAPI PowerShell call must not be broken as stale.
+    ageLock(21_000);
+    await expect(withTokenLock(dir, () => {}, { retries: 3, delayMs: 5 })).rejects.toThrow(
+      /timed out/
+    );
+  });
+
+  it('breaks a lock older than the 30s default threshold', async () => {
+    const lock = ageLock(31_000);
+    await expect(withTokenLock(dir, () => 'ran', { retries: 3, delayMs: 5 })).resolves.toBe('ran');
+    expect(existsSync(lock)).toBe(false); // broken, used, and released
   });
 });
