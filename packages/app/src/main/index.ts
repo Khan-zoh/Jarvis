@@ -369,11 +369,6 @@ if (!gotLock) {
     // wire-and-converse; for now it opens/focuses the window).
     wm.registerHotkey(config.get().ui.hotkey, () => wm.toggleMain());
 
-    // Show the main window on first launch unless started hidden (login autostart).
-    if (!process.argv.includes('--hidden')) {
-      wm.showMain();
-    }
-
     // -----------------------------------------------------------------------------------------
     // Startup step 5: construct the VoicePipeline with REAL components — only when
     // resolveModelPaths() is complete (including the local openWakeWord models).
@@ -398,6 +393,10 @@ if (!gotLock) {
         wm.setListening(true);
         console.log('[main] voice pipeline started');
       }
+      // The renderer refreshes voice:status when config:changed arrives. Voice construction is
+      // asynchronous and may finish after its initial status query, so rebroadcast the current
+      // redacted snapshot after every build result to close that startup/rebuild race.
+      wm.broadcast('config:changed', config.getRedacted());
     };
     const voiceManager = new VoiceManager<VoiceRuntime>({
       build: () => startVoicePipeline(config, wm, conductor),
@@ -406,6 +405,12 @@ if (!gotLock) {
     });
     applyVoiceResult(await voiceManager.init(config.get()));
     config.on('changed', (c) => voiceManager.onConfigChanged(c));
+
+    // Show only after the initial voice result is known. This keeps the first renderer query from
+    // ever rendering the transient "voice is still starting up" placeholder as durable state.
+    if (!process.argv.includes('--hidden')) {
+      wm.showMain();
+    }
 
     // Packaged-release smoke seam: opt-in, environment-only timed shutdown through Electron's
     // normal app.quit() path. This lets CI/audits prove startup AND will-quit child cleanup without
