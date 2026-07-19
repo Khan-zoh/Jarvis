@@ -219,9 +219,11 @@ export class AgentRouter {
       }
 
       const tools: { toolName: string; ok: boolean }[] = [];
+      const updates: string[] = [];
       let streamedText = '';
       const forward = (e: AgentEvent): void => {
         if (e.kind === 'tool_end') tools.push({ toolName: e.toolName, ok: e.ok });
+        if (e.kind === 'status_update') updates.push(e.text);
         if (e.kind === 'text_delta') streamedText += e.text;
         onEvent(e);
       };
@@ -252,6 +254,7 @@ export class AgentRouter {
         backend: backendId,
         userText: route.cleanedInput,
         assistantText: finalText,
+        ...(updates.length > 0 ? { assistantUpdates: updates } : {}),
         tools
       };
       this.sessions.appendTurn(session.id, record);

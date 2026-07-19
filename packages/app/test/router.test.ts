@@ -88,6 +88,7 @@ describe('AgentRouter', () => {
   it('passes backend events through in order and persists the turn with its tool list', async () => {
     claude.script({
       events: [
+        { kind: 'status_update', text: 'I am checking the recipient.' },
         { kind: 'text_delta', text: 'Sending ' },
         { kind: 'text_delta', text: 'now.' },
         { kind: 'tool_start', toolName: 'gmail_send', summary: 'Send email to Sam' },
@@ -99,6 +100,7 @@ describe('AgentRouter', () => {
     const record = await router.dispatch('email sam that i am late', onEvent);
 
     expect(events.map((e) => e.kind)).toEqual([
+      'status_update',
       'text_delta',
       'text_delta',
       'tool_start',
@@ -108,6 +110,7 @@ describe('AgentRouter', () => {
     expect(record.backend).toBe('claude');
     expect(record.userText).toBe('email sam that i am late');
     expect(record.assistantText).toBe('Sending now.');
+    expect(record.assistantUpdates).toEqual(['I am checking the recipient.']);
     expect(record.tools).toEqual([{ toolName: 'gmail_send', ok: true }]);
 
     const persisted = sessions.turns(sessions.activeSession().id);

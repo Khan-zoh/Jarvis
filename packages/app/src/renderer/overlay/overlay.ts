@@ -31,6 +31,7 @@ export class OverlayView {
   private userText = '';
   private userFinal = false;
   private replyText = '';
+  private showingUpdate = false;
   private errorText = '';
   private toolText = '';
 
@@ -78,7 +79,13 @@ export class OverlayView {
       }),
       api.onAgentEvent((e) => {
         switch (e.kind) {
+          case 'status_update':
+            this.replyText = `update — ${e.text}`;
+            this.showingUpdate = true;
+            break;
           case 'text_delta':
+            if (this.showingUpdate) this.replyText = '';
+            this.showingUpdate = false;
             this.replyText += e.text;
             break;
           case 'tool_start':
@@ -88,6 +95,7 @@ export class OverlayView {
             this.toolText = e.ok ? `✓ ${e.toolName}` : `✕ ${e.toolName}`;
             break;
           case 'done':
+            this.showingUpdate = false;
             this.replyText = e.finalText;
             break;
           case 'error':
@@ -115,6 +123,7 @@ export class OverlayView {
       this.userText = '';
       this.userFinal = false;
       this.replyText = '';
+      this.showingUpdate = false;
       this.errorText = '';
       this.toolText = '';
     }
@@ -122,6 +131,7 @@ export class OverlayView {
       this.userText = '';
       this.userFinal = false;
       this.replyText = '';
+      this.showingUpdate = false;
       this.errorText = '';
       this.toolText = ''; // ticker clears when idle
       this.setMicLevel(0);

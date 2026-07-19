@@ -56,6 +56,7 @@ export interface CapturedNote {
 export interface TranscriptEvent { text: string; final: boolean }
 
 export type AgentEvent =
+  | { kind: 'status_update'; text: string }
   | { kind: 'text_delta'; text: string }
   | { kind: 'tool_start'; toolName: string; summary: string }
   | { kind: 'tool_end'; toolName: string; ok: boolean }
@@ -68,6 +69,8 @@ export interface TurnRecord {
   backend: BackendId;
   userText: string;
   assistantText: string;
+  /** Interim progress messages shown separately from the completed answer. */
+  assistantUpdates?: string[];
   tools: { toolName: string; ok: boolean }[];
 }
 

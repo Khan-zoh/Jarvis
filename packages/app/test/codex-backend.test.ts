@@ -89,10 +89,11 @@ function makeBackend(
 
 const started = (id: string): ThreadEvent => ({ type: 'thread.started', thread_id: id });
 const turnStarted: ThreadEvent = { type: 'turn.started' };
-const agentMsg = (text: string): ThreadEvent => ({
-  type: 'item.completed',
-  item: { id: 'm1', type: 'agent_message', text }
-});
+const agentMsg = (text: string, phase?: 'commentary' | 'final_answer'): ThreadEvent =>
+  ({
+    type: 'item.completed',
+    item: { id: 'm1', type: 'agent_message', text, ...(phase ? { phase } : {}) }
+  }) as ThreadEvent;
 const turnCompleted: ThreadEvent = {
   type: 'turn.completed',
   usage: { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0 }
@@ -184,6 +185,32 @@ describe('CodexBackend — event mapping', () => {
     ]);
     expect(out.finalText).toBe('The time is noon.');
     expect(out.sessionId).toBe('t1');
+  });
+
+  it('separates commentary updates from the final answer using the protocol phase', async () => {
+    const events: AgentEvent[] = [];
+    const { backend } = makeBackend([
+      {
+        events: [
+          started('t1'),
+          agentMsg('I’ll inspect the folder.', 'commentary'),
+          agentMsg('I found three files.', 'final_answer'),
+          turnCompleted
+        ]
+      }
+    ]);
+    const { result } = await backend.startTurn({
+      input: 'inspect it',
+      sessionId: null,
+      onEvent: (e) => events.push(e)
+    });
+
+    await expect(result).resolves.toMatchObject({ finalText: 'I found three files.' });
+    expect(events).toEqual([
+      { kind: 'status_update', text: 'I’ll inspect the folder.' },
+      { kind: 'text_delta', text: 'I found three files.' },
+      { kind: 'done', finalText: 'I found three files.' }
+    ]);
   });
 
   it('maps mcp_tool_call started/completed to tool_start/tool_end', async () => {

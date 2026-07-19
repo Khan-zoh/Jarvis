@@ -220,6 +220,12 @@ export class VoicePipeline {
     if (this._state !== 'thinking' && this._state !== 'speaking') return;
     const myTurn = this.turn;
     switch (e.kind) {
+      case 'status_update': {
+        // A progress update is a complete standalone message, not part of the final-answer
+        // sentence stream. Speaking it still keeps a voice user informed during longer tasks.
+        if (this.ttsEnabled()) this.speakSentence(e.text);
+        return;
+      }
       case 'text_delta': {
         if (!this.ttsEnabled() || !this.chunker) return;
         for (const sentence of this.chunker.push(e.text)) this.speakSentence(sentence);

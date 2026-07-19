@@ -14,6 +14,7 @@ const TURNS: TurnRecord[] = [
     backend: 'claude',
     userText: 'first question',
     assistantText: 'first answer',
+    assistantUpdates: ['checking the calendar', 'comparing the available times'],
     tools: [{ toolName: 'gcal.list', ok: true }]
   },
   {
@@ -52,6 +53,10 @@ describe('renderTranscript', () => {
     expect(first.querySelector('.turn-user')?.textContent).toBe('you — first question');
     expect(first.querySelector('.turn-prefix')?.textContent).toBe('you — ');
     expect(first.querySelector('.turn-assistant')?.textContent).toBe('first answer');
+    expect(Array.from(first.querySelectorAll('.turn-update')).map((el) => el.textContent)).toEqual([
+      'update — checking the calendar',
+      'update — comparing the available times'
+    ]);
     expect(first.querySelector('.turn-tool')?.textContent).toBe('✓ gcal.list');
 
     const toolLines = Array.from(host.querySelectorAll('article.turn:last-child .turn-tool')).map(
@@ -189,6 +194,10 @@ describe('MainView live events (wire-and-converse)', () => {
 
     const live = root.querySelector('article.turn-live') as HTMLElement;
     expect(live).not.toBeNull();
+    api.pushAgentEvent({ kind: 'status_update', text: 'Checking your local time.' });
+    expect(live.querySelector('.turn-update')?.textContent).toBe(
+      'update — Checking your local time.'
+    );
     expect(live.querySelector('.turn-user')?.textContent).toBe('you — what time is it');
 
     api.pushAgentEvent({ kind: 'text_delta', text: 'It is ' });
@@ -208,11 +217,15 @@ describe('MainView live events (wire-and-converse)', () => {
       backend: 'claude',
       userText: 'what time is it',
       assistantText: 'It is noon.',
+      assistantUpdates: ['Checking your local time.'],
       tools: [{ toolName: 'gmail_send', ok: true }]
     });
     expect(root.querySelector('article.turn-live')).toBeNull();
     expect(root.querySelectorAll('article.turn')).toHaveLength(1);
     expect(root.querySelector('.turn-assistant')?.textContent).toBe('It is noon.');
+    expect(root.querySelector('.turn-update')?.textContent).toBe(
+      'update — Checking your local time.'
+    );
   });
 
   it('a voice turn goes live from the final transcript push', async () => {
