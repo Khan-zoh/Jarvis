@@ -11,7 +11,7 @@ signing note at the bottom.
 Automated private-beta release evidence (2026-07-18): production audit clean, 616 tests passed,
 all model hashes verified, both native ABIs load-tested, brain-enabled packaged and extracted-NSIS
 payload startups passed, and normal shutdown left no helpers. Installer SHA-256:
-`4d97c0565fcd47ac3af9b80eb926efc626980bf3283b8b792ffc201462aa09c1`.
+`ca8e50bf25b2ec06579a0464a1e8216b87fe06a5a7da83607bd2d8f1d2f7d64d`.
 
 The remaining items in this checklist require human hardware/account interaction: standalone
 Claude/Codex login, speaking/listening through the real microphone and speakers, Google
