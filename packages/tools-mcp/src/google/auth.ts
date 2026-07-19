@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { google, type calendar_v3, type drive_v3, type gmail_v1 } from 'googleapis';
@@ -55,25 +56,63 @@ export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email'
 ] as const;
 
+/**
+ * Options passed to `generateAuthUrl`. `state` + PKCE (`code_challenge`/`code_challenge_method`)
+ * are supported by googleapis' real OAuth2Client, so this seam extension stays production-faithful.
+ */
+export interface AuthUrlOpts {
+  access_type?: string;
+  scope: string[];
+  prompt?: string;
+  /** Opaque anti-injection nonce echoed back on the callback (B5). */
+  state?: string;
+  /** PKCE S256 challenge = base64url(sha256(code_verifier)). */
+  code_challenge?: string;
+  code_challenge_method?: 'S256';
+}
+
+/** googleapis' `getToken` accepts a bare code or an options object (used here to pass PKCE). */
+export type GetTokenArg = string | { code: string; codeVerifier?: string };
+
 /** The subset of googleapis' OAuth2Client this module uses — the seam mocked in tests. */
 export interface OAuth2ClientLike {
-  generateAuthUrl(opts: { access_type?: string; scope: string[]; prompt?: string }): string;
-  getToken(code: string): Promise<{ tokens: Credentials }>;
+  generateAuthUrl(opts: AuthUrlOpts): string;
+  getToken(codeOrOpts: GetTokenArg): Promise<{ tokens: Credentials }>;
   setCredentials(tokens: Credentials): void;
   credentials: Credentials;
   on(event: 'tokens', listener: (tokens: Credentials) => void): void;
   revokeCredentials(): Promise<unknown>;
 }
 
+/** Options the manager hands the loopback server so it can validate the callback itself (B5). */
+export interface LoopbackOptions {
+  /** The only path Google may redirect to; every other path 404s. */
+  redirectPath: string;
+  /** The `state` value the callback must echo; a missing/mismatched state 400s and rejects. */
+  expectedState: string;
+}
+
 /** A running loopback server awaiting the OAuth redirect. */
 export interface LoopbackServer {
   readonly port: number;
-  /** Resolves with the `code` query param, or rejects if Google returns `?error=`. */
+  /**
+   * Resolves with the `code` query param — but only after the callback hit the exact
+   * `redirectPath` AND carried the matching `state`. Rejects on `?error=`, a wrong path, or a
+   * missing/mismatched `state` (having already answered the browser with the right HTTP status).
+   */
   waitForCode(): Promise<string>;
   close(): void;
 }
 
-export type StartLoopback = () => Promise<LoopbackServer>;
+export type StartLoopback = (opts: LoopbackOptions) => Promise<LoopbackServer>;
+
+/**
+ * The loopback redirect path. Google's installed-app loopback flow matches only scheme+host for
+ * `127.0.0.1` redirect URIs (any port is accepted), so pinning the path here — the root, matching
+ * the redirect URI we register — costs nothing at Google's end while letting us reject callbacks
+ * delivered to any other path (B5: path is constrained to this exact value).
+ */
+export const OAUTH_REDIRECT_PATH = '/';
 
 /** Injectable seams; every optional member has a production default. */
 export interface GoogleAuthDeps {
@@ -120,22 +159,42 @@ function defaultMakeClients(client: OAuth2ClientLike): GoogleClients {
 }
 
 /** Production loopback: a one-shot HTTP server on a random 127.0.0.1 port. */
-export async function startHttpLoopback(): Promise<LoopbackServer> {
+export async function startHttpLoopback(opts: LoopbackOptions): Promise<LoopbackServer> {
+  const { redirectPath, expectedState } = opts;
   let resolveCode!: (code: string) => void;
   let rejectCode!: (err: Error) => void;
   const codePromise = new Promise<string>((res, rej) => {
     resolveCode = res;
     rejectCode = rej;
   });
+  // A hostile/mistaken callback can reject the flow BEFORE the caller awaits waitForCode() (e.g.
+  // while the consent browser is still opening). This no-op handler keeps that early rejection from
+  // surfacing as an unhandled rejection; callers still observe it through waitForCode().
+  codePromise.catch(() => {});
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    // Constrain the callback to the exact registered path; anything else is not our redirect.
+    if (url.pathname !== redirectPath) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
     const error = url.searchParams.get('error');
     const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
     if (error) {
       res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' });
       res.end('<h1>Authorization failed</h1><p>You can close this window.</p>');
       rejectCode(new Error(`Google authorization failed: ${error}`));
+      return;
+    }
+    // B5: reject any code whose state does not match the one minted for THIS flow. A local page or
+    // process racing to POST a `?code=` cannot inject it without also guessing the random state.
+    if (!state || state !== expectedState) {
+      res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<h1>Authorization rejected</h1><p>Invalid state. You can close this window.</p>');
+      rejectCode(new Error('Google authorization failed: state mismatch'));
       return;
     }
     if (code) {
@@ -207,18 +266,28 @@ export function createGoogleAuthManager(deps: GoogleAuthDeps): GoogleAuthManager
     },
 
     async beginAuthFlow(clientId, clientSecret) {
-      const server = await startLoopback();
+      // B5: a per-flow CSRF/injection nonce and a PKCE verifier, both cryptographically random.
+      const state = randomBytes(32).toString('base64url');
+      const codeVerifier = randomBytes(32).toString('base64url');
+      const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+      const server = await startLoopback({ redirectPath: OAUTH_REDIRECT_PATH, expectedState: state });
       try {
+        // No explicit path ⇒ the parsed pathname is OAUTH_REDIRECT_PATH ('/'), which is what the
+        // loopback server matches on; kept slash-free so the registered redirect URI is canonical.
         const redirectUri = `http://127.0.0.1:${server.port}`;
         const client = createClient(clientId, clientSecret, redirectUri);
         const authUrl = client.generateAuthUrl({
           access_type: 'offline',
           prompt: 'consent', // force a refresh_token on every connect
-          scope: [...GOOGLE_SCOPES]
+          scope: [...GOOGLE_SCOPES],
+          state,
+          code_challenge: codeChallenge,
+          code_challenge_method: 'S256'
         });
         await deps.openBrowser(authUrl);
+        // The loopback server has already validated path + state before resolving with the code.
         const code = await server.waitForCode();
-        const { tokens } = await client.getToken(code);
+        const { tokens } = await client.getToken({ code, codeVerifier });
         client.setCredentials(tokens);
         const email = await fetchEmail(client);
         await withTokenLock(dataDir, () => {
@@ -245,17 +314,26 @@ export function createGoogleAuthManager(deps: GoogleAuthDeps): GoogleAuthManager
     },
 
     async disconnect() {
-      const stored = readStoredAuth(dataDir, cipher);
-      if (stored) {
-        const client = createClient(stored.clientId, stored.clientSecret, 'http://127.0.0.1');
-        client.setCredentials(stored.tokens as Credentials);
-        try {
-          await client.revokeCredentials();
-        } catch {
-          /* best-effort: token may already be expired/revoked upstream */
+      // B6: read → revoke → delete must all happen UNDER the token lock. If any step ran outside
+      // it, a concurrent refresh could interleave (read the live file, then write after the delete)
+      // and resurrect the credentials we just removed. Holding the lock across the network revoke is
+      // bounded and safe: the stale-lock threshold (>= DPAPI timeout) means a legitimately slow
+      // revoke won't be broken as stale, and deleteStoredAuth no longer touches the lock file itself.
+      await withTokenLock(dataDir, async () => {
+        const stored = readStoredAuth(dataDir, cipher);
+        if (stored) {
+          const client = createClient(stored.clientId, stored.clientSecret, 'http://127.0.0.1');
+          client.setCredentials(stored.tokens as Credentials);
+          try {
+            await client.revokeCredentials();
+          } catch {
+            /* best-effort: token may already be expired/revoked upstream */
+          }
         }
-      }
-      deleteStoredAuth(dataDir);
+        deleteStoredAuth(dataDir);
+      });
+      // Any refresh landing after this deletes-under-lock sees no file (readStoredAuth → null) and
+      // its `if (!current) return` bails without re-persisting — absence IS the tombstone (§A3).
     }
   };
 }
