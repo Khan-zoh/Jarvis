@@ -21,14 +21,14 @@ describe('Endpointer', () => {
     expect(results.every((r) => r === 'continue')).toBe(true);
   });
 
-  it("ends exactly on the 25th consecutive silence frame following speech (25*32ms=800ms)", () => {
+  it('ends exactly on the 47th consecutive silence frame following speech (ceil(1500/32)=47)', () => {
     const ep = new Endpointer();
     expect(ep.push('speech')).toBe('continue');
 
-    for (let i = 1; i <= 24; i++) {
+    for (let i = 1; i <= 46; i++) {
       expect(ep.push('silence')).toBe('continue');
     }
-    // The 25th silence frame in a row is the one that crosses the 800ms threshold.
+    // The 47th silence frame crosses the 1500ms threshold (47 * 32ms = 1504ms).
     expect(ep.push('silence')).toBe('end');
   });
 
@@ -42,7 +42,7 @@ describe('Endpointer', () => {
     // A speech frame here resets the consecutive-silence run.
     expect(ep.push('speech')).toBe('continue');
 
-    for (let i = 1; i <= 24; i++) {
+    for (let i = 1; i <= 46; i++) {
       expect(ep.push('silence')).toBe('continue');
     }
     expect(ep.push('silence')).toBe('end');
@@ -72,7 +72,7 @@ describe('Endpointer', () => {
   it('does not end or too-long before their respective thresholds', () => {
     const ep = new Endpointer();
     ep.push('speech');
-    for (let i = 1; i <= 23; i++) {
+    for (let i = 1; i <= 45; i++) {
       expect(ep.push('silence')).toBe('continue');
     }
   });
