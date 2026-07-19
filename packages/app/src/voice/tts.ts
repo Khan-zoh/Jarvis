@@ -60,6 +60,13 @@ function defaultReadFile(path: string): string {
   return readFileSync(path, 'utf-8');
 }
 
+// Keep these adjustments subtle: a slightly slower pace, a touch more prosodic variation, and
+// enough sentence spacing to sound conversational without making replies feel sluggish.
+const PIPER_LENGTH_SCALE = 1.05;
+const PIPER_NOISE_SCALE = 0.7;
+const PIPER_NOISE_WIDTH = 0.85;
+const PIPER_SENTENCE_SILENCE = 0.25;
+
 /** Parses a piper voice `.onnx.json` config's `audio.sample_rate` field. Pure/exported so it can
  * be unit-tested against a small fixture string without touching disk. */
 export function parseSampleRate(configJson: string): number {
@@ -210,6 +217,14 @@ export class PiperTts implements TextToSpeech {
           this.voicePath,
           '--config',
           `${this.voicePath}.json`,
+          '--length_scale',
+          String(PIPER_LENGTH_SCALE),
+          '--noise_scale',
+          String(PIPER_NOISE_SCALE),
+          '--noise_w',
+          String(PIPER_NOISE_WIDTH),
+          '--sentence_silence',
+          String(PIPER_SENTENCE_SILENCE),
           '--output_raw'
         ]);
       } catch (err) {

@@ -145,13 +145,13 @@ export type EndpointResult = 'continue' | 'end' | 'too-long';
 
 export interface EndpointerOptions {
   /** ms of continuous silence, following at least one speech frame, that ends the utterance.
-   * Default 800ms. */
+   * Default 1500ms, leaving enough room for a natural mid-sentence pause. */
   silenceMs?: number;
   /** Hard cap in ms on total utterance length, regardless of content. Default 15000ms (15s). */
   maxMs?: number;
 }
 
-const DEFAULT_SILENCE_MS = 800;
+const DEFAULT_SILENCE_MS = 1500;
 const DEFAULT_MAX_MS = 15_000;
 
 export class Endpointer {
@@ -165,7 +165,7 @@ export class Endpointer {
     const silenceMs = opts.silenceMs ?? DEFAULT_SILENCE_MS;
     const maxMs = opts.maxMs ?? DEFAULT_MAX_MS;
     // Math.ceil: a threshold of exactly N frames' worth of ms must require N frames, not N-1
-    // (e.g. 800ms / 32ms = 25.0 -> 25 frames; 15000ms / 32ms = 468.75 -> 469 frames — matches the
+    // (e.g. 1500ms / 32ms = 46.875 -> 47 frames; 15000ms / 32ms = 468.75 -> 469 frames — matches the
     // task's table-driven expectations exactly).
     this.silenceFrameThreshold = Math.ceil(silenceMs / FRAME_MS);
     this.maxFrameThreshold = Math.ceil(maxMs / FRAME_MS);

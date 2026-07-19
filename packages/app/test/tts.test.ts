@@ -128,6 +128,33 @@ describe('parseSampleRate', () => {
 });
 
 describe('PiperTts', () => {
+  it('starts Piper with restrained conversational prosody settings', async () => {
+    const { tts, procs, spawnFn } = makeTts();
+    await tts.init({ voicePath: 'C:/fake/voice.onnx' });
+
+    const speaking = tts.speak('hello');
+    expect(spawnFn).toHaveBeenCalledWith('C:/fake/piper.exe', [
+      '--model',
+      'C:/fake/voice.onnx',
+      '--config',
+      'C:/fake/voice.onnx.json',
+      '--length_scale',
+      '1.05',
+      '--noise_scale',
+      '0.7',
+      '--noise_w',
+      '0.85',
+      '--sentence_silence',
+      '0.25',
+      '--output_raw'
+    ]);
+
+    tts.cancel();
+    await speaking;
+    await tick();
+    expect(procs[0]?.kill).toHaveBeenCalledOnce();
+  });
+
   it('processes queued sentences in FIFO order, one piper process at a time', async () => {
     const { tts, player, procs, spawnFn } = makeTts();
     await tts.init({ voicePath: 'C:/fake/voice.onnx' });
