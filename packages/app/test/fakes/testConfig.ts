@@ -13,9 +13,6 @@ export function makeConfig(overrides?: {
   return {
     agentName: overrides?.agentName ?? 'Jarvis',
     voice: {
-      picovoiceAccessKey: '',
-      builtinKeyword: 'jarvis',
-      customKeywordPath: null,
       sensitivity: 0.6,
       inputDeviceId: null,
       listenTimeoutMs: 8000,

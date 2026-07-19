@@ -8,20 +8,20 @@ clean. Run Gates A–C first for the live voice/backend/tools proofs; this gate 
 Artifact: `dist-package/Jarvis Setup 0.1.0.exe` (built by `npm run dist`). Unsigned — see the
 signing note at the bottom.
 
-Automated private-beta release evidence (2026-07-18): production audit clean, 630 tests passed,
+Automated private-beta release evidence (2026-07-18): production audit clean, 616 tests passed,
 all model hashes verified, both native ABIs load-tested, brain-enabled packaged and extracted-NSIS
 payload startups passed, and normal shutdown left no helpers. Installer SHA-256:
-`c5adb0b1e6d1f5a8161d74d8496414b81325d6c146f78e676be3b3ad773c7001`.
+`4d97c0565fcd47ac3af9b80eb926efc626980bf3283b8b792ffc201462aa09c1`.
 
-The remaining items in this checklist require human hardware/account interaction: Picovoice key,
-standalone Claude/Codex login, speaking/listening through the real microphone and speakers, Google
+The remaining items in this checklist require human hardware/account interaction: standalone
+Claude/Codex login, speaking/listening through the real microphone and speakers, Google
 OAuth consent, and interactive uninstall observation.
 
 ## What automated hardening already proved (don't redo)
 
 `npm run dist` + the packaged startup health check verify, on every build:
 
-- native modules (better-sqlite3, onnxruntime-node, porcupine) load inside packaged Electron;
+- native modules (better-sqlite3 and onnxruntime-node) load inside packaged Electron;
 - the tools-mcp worker spawns from the asar and serves all 24 tools (`tools/list` health check);
 - whisper/piper/ffmpeg + models resolve from `%APPDATA%/Jarvis/models`;
 - both agent CLIs (claude, codex) launch from `app.asar.unpacked`;
@@ -44,25 +44,24 @@ See `docs/packaging-smoke.md` and `docs/release-0.1.0.md` for the evidence.
   Settings shows the **setup** checklist:
   1. download voice models
   2. plug in a microphone
-  3. add your picovoice access key
-  4. sign in to claude or codex
-  5. connect google (optional)
+  3. sign in to claude or codex
+  4. connect google (optional)
 - No crash, no error toast — a missing prerequisite is a durable setup state, not a transient
   error.
 
 ## 3. First-run provisioning → working assistant
 
 - **Download voice models**: Settings → click the download-models button. Progress streams in the
-  pane; models land in `%APPDATA%/Jarvis/models` (~900 MB). The checklist item ticks.
+  pane; models land in `%APPDATA%/Jarvis/models` (~905 MB). The checklist item ticks.
 - **Microphone**: plug one in; the device picker populates.
-- **Picovoice key**: paste your key (Settings → Voice). Voice rebuilds live — no restart. The
-  overlay's `listening` indicator should come up. (Custom wake word: `docs/wakeword-setup.md`,
-  reachable from the in-app "how" link, which opens the shipped doc.)
+- **Wake word**: no account or key is required. The local **"Hey Jarvis"** model starts as soon as
+  models and a microphone are available.
 - **Sign in**: standalone `claude` (or `codex login`) in a terminal — see A9 machine blocker below.
 
 ## 4. One voice turn + one text turn
 
-- **Voice**: say **"Jarvis — what time is it?"** Overlay: `listening → transcribing → thinking`,
+- **Voice**: say **"Hey Jarvis"**, then **"what time is it?"** Overlay:
+  `listening → transcribing → thinking`,
   then a spoken reply. (A Google turn like "what's on my calendar today" needs step 6/Gate C.)
 - **Text**: press the hotkey, type a request, Enter. Reply shows in the window; no TTS for
   text-initiated turns.
@@ -90,7 +89,6 @@ See `docs/packaging-smoke.md` and `docs/release-0.1.0.md` for the evidence.
 
 ## Still-blocked items (user action required)
 
-- **Picovoice access key** — free, user-specific; must be pasted by the user (step 3).
 - **Claude / Codex login** — this machine's Claude login is Desktop host-managed; spawned CLIs see
   "Not logged in" until the user runs a standalone `claude /login` (or `claude setup-token`) /
   `codex login`. See `cdd/plan/amendments.md` A9. Until then, agent turns fail with an

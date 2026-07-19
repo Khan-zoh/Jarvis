@@ -293,12 +293,12 @@ export class VoicePipeline {
   private async handleFrame(frame: AudioFrame): Promise<void> {
     switch (this._state) {
       case 'idle': {
-        if (this.safeWake(frame)) this.onWake(false);
+        if (await this.safeWake(frame)) this.onWake(false);
         return;
       }
       case 'speaking': {
         // Barge-in: wake word is live while speaking.
-        if (this.safeWake(frame)) this.onWake(true);
+        if (await this.safeWake(frame)) this.onWake(true);
         return;
       }
       case 'listening': {
@@ -338,9 +338,9 @@ export class VoicePipeline {
 
   /** Wraps wake.process so a detector throw becomes an error state instead of an unhandled
    * rejection inside the drain loop. */
-  private safeWake(frame: AudioFrame): boolean {
+  private async safeWake(frame: AudioFrame): Promise<boolean> {
     try {
-      return this.deps.wake.process(frame);
+      return await this.deps.wake.process(frame);
     } catch (err) {
       this.toError(`wake word detection failed: ${errMsg(err)}`);
       return false;

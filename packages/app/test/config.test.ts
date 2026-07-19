@@ -8,7 +8,7 @@ vi.mock('electron', () => ({
     decryptString: (b: Buffer) => b.toString()
   }
 }));
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigStore, DEFAULT_CONFIG, type SafeStorageCodec } from '../src/main/config';
@@ -36,7 +36,6 @@ describe('ConfigStore', () => {
     const store = new ConfigStore(dir, fakeCodec);
     const c = store.get();
     expect(c.agentName).toBe('Jarvis');
-    expect(c.voice.builtinKeyword).toBe('jarvis');
     expect(c.voice.sensitivity).toBe(0.6);
     expect(c.voice.listenTimeoutMs).toBe(8000);
     expect(c.agents.defaultBackend).toBe('claude');
@@ -64,12 +63,31 @@ describe('ConfigStore', () => {
     expect(store.get().agents.claude.systemPromptExtra).toBe('');
   });
 
+  it('drops obsolete Porcupine fields when upgrading an existing profile', () => {
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({
+        voice: {
+          picovoiceAccessKey: '',
+          builtinKeyword: 'jarvis',
+          customKeywordPath: 'C:/old.ppn',
+          sensitivity: 0.8
+        }
+      })
+    );
+    const voice = new ConfigStore(dir, fakeCodec).get().voice as unknown as Record<string, unknown>;
+    expect(voice.sensitivity).toBe(0.8);
+    expect(voice.picovoiceAccessKey).toBeUndefined();
+    expect(voice.builtinKeyword).toBeUndefined();
+    expect(voice.customKeywordPath).toBeUndefined();
+  });
+
   it('emits a redacted config on change', () => {
     const store = new ConfigStore(dir, fakeCodec);
-    store.setSecret('picovoiceAccessKey', 'SEED');
+    store.setSecret('googleClientSecret', 'SEED');
     let seen: string | undefined;
     store.on('changed', (c) => {
-      seen = c.voice.picovoiceAccessKey;
+      seen = c.google.clientSecret;
     });
     store.set({ agentName: 'Edith' });
     expect(seen).toBe('•set');
@@ -77,36 +95,28 @@ describe('ConfigStore', () => {
 
   it('never writes secret plaintext to config.json or secrets.bin', () => {
     const store = new ConfigStore(dir, fakeCodec);
-    const secret = 'super-secret-picovoice-KEY-1234';
     const googleSecret = 'google-oauth-CLIENT-SECRET-abcd';
-    store.setSecret('picovoiceAccessKey', secret);
     store.setSecret('googleClientSecret', googleSecret);
 
     const configText = readFileSync(join(dir, 'config.json'), 'utf-8');
-    expect(configText).not.toContain(secret);
     expect(configText).not.toContain(googleSecret);
 
     expect(existsSync(join(dir, 'secrets.bin'))).toBe(true);
     const secretsRaw = readFileSync(join(dir, 'secrets.bin'), 'utf-8');
-    expect(secretsRaw).not.toContain(secret);
     expect(secretsRaw).not.toContain(googleSecret);
 
     // But an in-process read decrypts them, and a fresh instance recovers them.
-    expect(store.get().voice.picovoiceAccessKey).toBe(secret);
     const reopened = new ConfigStore(dir, fakeCodec);
-    expect(reopened.get().voice.picovoiceAccessKey).toBe(secret);
     expect(reopened.get().google.clientSecret).toBe(googleSecret);
   });
 
   it('getRedacted masks set secrets as •set and empty ones as ""', () => {
     const store = new ConfigStore(dir, fakeCodec);
-    expect(store.getRedacted().voice.picovoiceAccessKey).toBe('');
     expect(store.getRedacted().google.clientSecret).toBe('');
-    store.setSecret('picovoiceAccessKey', 'x');
-    expect(store.getRedacted().voice.picovoiceAccessKey).toBe('•set');
-    expect(store.getRedacted().google.clientSecret).toBe('');
+    store.setSecret('googleClientSecret', 'x');
+    expect(store.getRedacted().google.clientSecret).toBe('•set');
     // getRedacted must not leak the real value
-    expect(store.getRedacted().voice.picovoiceAccessKey).not.toBe('x');
+    expect(store.getRedacted().google.clientSecret).not.toBe('x');
   });
 
   it('rejects unknown secret keys', () => {

@@ -26,7 +26,7 @@ describe('buildPreloadApi channel wiring', () => {
 
     await api.getConfig();
     await api.setConfig({ agentName: 'x' });
-    await api.setSecret('picovoiceAccessKey', 'v');
+    await api.setSecret('googleClientSecret', 'v');
     await api.sendText('hi', 'codex');
     await api.cancel();
     await api.listSessions();
@@ -55,7 +55,7 @@ describe('buildPreloadApi channel wiring', () => {
 
     // Arguments forwarded verbatim.
     expect(invoke).toHaveBeenCalledWith(INVOKE.configSet, { agentName: 'x' });
-    expect(invoke).toHaveBeenCalledWith(INVOKE.secretSet, 'picovoiceAccessKey', 'v');
+    expect(invoke).toHaveBeenCalledWith(INVOKE.secretSet, 'googleClientSecret', 'v');
     expect(invoke).toHaveBeenCalledWith(INVOKE.commandText, 'hi', 'codex');
     expect(invoke).toHaveBeenCalledWith(INVOKE.sessionLoad, 'id-1');
   });

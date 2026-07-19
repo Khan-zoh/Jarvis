@@ -50,18 +50,9 @@ files:
 # packages; their pure-JS deps (bindings, etc.) stay in the asar and resolve normally.
 #   - better-sqlite3       -> brain store (tools-mcp worker process)
 #   - onnxruntime-node     -> VAD (main) + brain embedder (tools-mcp worker)
-#   - @picovoice/porcupine -> wake word (main process)
 asarUnpack:
   - "**/node_modules/better-sqlite3/**"
   - "**/node_modules/onnxruntime-node/**"
-  - "**/node_modules/@picovoice/**"
-
-# Ship the in-app docs so the settings "how to train a custom wake word" link resolves in the
-# installed app (windows.ts opens <resourcesPath>/docs/wakeword-setup.md via the shell). Models are
-# NOT shipped — they are fetched to <userData>/models on first run (A7 models contract).
-extraResources:
-  - from: ../../docs/wakeword-setup.md
-    to: docs/wakeword-setup.md
 
 win:
   target:

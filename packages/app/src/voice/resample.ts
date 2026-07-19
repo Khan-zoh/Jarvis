@@ -38,8 +38,8 @@ export function resampleTo16k(input: Int16Array, fromRate: number): Int16Array {
 
 /**
  * Rechunks an arbitrary stream of samples (delivered via successive `push` calls) into exact
- * `frameSize`-length frames (default 512 — Porcupine's required frame length, see
- * cdd/plan/voice-pipeline.md). Leftover samples that don't fill a whole frame are held and
+ * `frameSize`-length frames (default 512 — shared by Silero VAD and the capture pipeline).
+ * Leftover samples that don't fill a whole frame are held and
  * prepended to the next `push`.
  */
 export class Framer {

@@ -37,8 +37,6 @@ export interface FakeApi extends JarvisApi {
   accounts: AccountsStatus;
   /** What fetchModels() resolves with. */
   fetchResult: ModelsFetchResult;
-  /** What pickKeywordFile() resolves with (null = user cancelled). */
-  pickedKeywordFile: string | null;
   /** What brainRecent() resolves with; set before constructing a view. */
   capturedNotes: CapturedNote[];
   calls: {
@@ -66,9 +64,6 @@ export interface FakeApi extends JarvisApi {
 export const FAKE_CONFIG: AppConfig = {
   agentName: 'jarvis',
   voice: {
-    picovoiceAccessKey: '',
-    builtinKeyword: 'jarvis',
-    customKeywordPath: null,
     sensitivity: 0.6,
     inputDeviceId: null,
     listenTimeoutMs: 8000,
@@ -122,7 +117,6 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     models: { ok: true },
     accounts: { claude: { ok: true }, codex: { ok: true } },
     fetchResult: { ok: true, failed: [] },
-    pickedKeywordFile: null,
     capturedNotes: [],
     calls: {
       sendText: [],
@@ -183,7 +177,6 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
       api.calls.fetchModels += 1;
       return Promise.resolve(api.fetchResult);
     },
-    pickKeywordFile: () => Promise.resolve(api.pickedKeywordFile),
     brainRecent: () => Promise.resolve(api.capturedNotes),
     brainRemove: (id) => {
       api.calls.brainRemove.push(id);

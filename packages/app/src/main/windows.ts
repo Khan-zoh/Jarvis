@@ -95,27 +95,12 @@ function loadRenderer(win: BrowserWindow, view?: 'overlay'): void {
 }
 
 /**
- * Resolves the shipped `wakeword-setup.md` doc: packaged it is an extraResource under
- * `<resourcesPath>/docs/`; in dev it lives at the repo root `docs/` (app path is packages/app).
- */
-function wakewordDocPath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'docs', 'wakeword-setup.md')
-    : join(app.getAppPath(), '..', '..', 'docs', 'wakeword-setup.md');
-}
-
-/**
  * Security + link hardening for a renderer's webContents: the app is a fixed local page, so it must
  * never navigate away in-window. External http(s)/mailto links open in the user's default browser;
- * the settings "how to train a wake word" link (href="docs/wakeword-setup.md") opens the shipped
- * markdown doc in the OS default handler. Everything else is denied.
+ * everything else is denied.
  */
 function wireExternalLinks(webContents: Electron.WebContents): void {
   const handle = (rawUrl: string): void => {
-    if (/wakeword-setup\.md($|[?#])/.test(rawUrl)) {
-      void shell.openPath(wakewordDocPath());
-      return;
-    }
     if (/^(https?|mailto):/.test(rawUrl)) {
       void shell.openExternal(rawUrl);
     }

@@ -64,7 +64,7 @@ export class FakeWake implements WakeWordDetector {
 
   async init(_cfg: WakeWordConfig): Promise<void> {}
 
-  process(_frame: AudioFrame): boolean {
+  async process(_frame: AudioFrame): Promise<boolean> {
     this.processCalls += 1;
     return this.fireOnCalls.has(this.processCalls);
   }
