@@ -20,7 +20,7 @@ export interface SafeStorageCodec {
  * The two secret values that never touch `config.json` in plaintext. Each maps a secret key (as
  * used by the `secret:set` IPC channel) to its location inside AppConfig.
  */
-type SecretKey = 'picovoiceAccessKey' | 'googleClientSecret';
+type SecretKey = 'googleClientSecret';
 
 interface SecretSlot {
   read(c: AppConfig): string;
@@ -28,12 +28,6 @@ interface SecretSlot {
 }
 
 const SECRET_SLOTS: Record<SecretKey, SecretSlot> = {
-  picovoiceAccessKey: {
-    read: (c) => c.voice.picovoiceAccessKey,
-    write: (c, v) => {
-      c.voice.picovoiceAccessKey = v;
-    }
-  },
   googleClientSecret: {
     read: (c) => c.google.clientSecret,
     write: (c, v) => {
@@ -150,6 +144,13 @@ export class ConfigStore {
         // Corrupt config file: fall back to defaults rather than crash.
       }
     }
+    // v0.1 private-beta migration: Porcupine was replaced by native openWakeWord. Remove its
+    // obsolete key/keyword fields so old profiles become structurally identical to new ones and
+    // a later persist also drops them from config.json.
+    const legacyVoice = merged.voice as AppConfig['voice'] & Record<string, unknown>;
+    delete legacyVoice.picovoiceAccessKey;
+    delete legacyVoice.builtinKeyword;
+    delete legacyVoice.customKeywordPath;
     // config.json must never hold secret plaintext; force secrets empty before overlaying.
     for (const key of SECRET_KEYS) {
       SECRET_SLOTS[key].write(merged, '');

@@ -1,5 +1,5 @@
 // Wiring tests for the settings-ui task's new IPC surface: the plugin:* channels, the
-// accounts/models channels, the .ppn picker dialog channel, and the models:progress push.
+// accounts/models channels and the models:progress push.
 // Kept as its own file (same file-boundary convention as test/voice-ipc.test.ts); same
 // mock-ipcRenderer pattern.
 
@@ -31,7 +31,6 @@ describe('settings-ui channel wiring', () => {
     expect(INVOKE.accountsStatus).toBe('accounts:status');
     expect(INVOKE.modelsStatus).toBe('models:status');
     expect(INVOKE.modelsFetch).toBe('models:fetch');
-    expect(INVOKE.pickKeywordFile).toBe('dialog:pickKeywordFile');
     expect(PUSH.modelsProgress).toBe('models:progress');
   });
 
@@ -47,7 +46,6 @@ describe('settings-ui channel wiring', () => {
     await api.accountsStatus();
     await api.modelsStatus();
     await api.fetchModels();
-    await api.pickKeywordFile();
 
     expect(invoke.mock.calls).toEqual([
       [INVOKE.pluginListManifests],
@@ -57,8 +55,7 @@ describe('settings-ui channel wiring', () => {
       [INVOKE.pluginAction, 'google', 'connect'],
       [INVOKE.accountsStatus],
       [INVOKE.modelsStatus],
-      [INVOKE.modelsFetch],
-      [INVOKE.pickKeywordFile]
+      [INVOKE.modelsFetch]
     ]);
   });
 

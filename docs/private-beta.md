@@ -17,7 +17,7 @@ production dependency advisories, runs the complete test suite, verifies every c
 against its pinned SHA-256, builds the NSIS installer, and writes `dist-package/SHA256SUMS.txt`.
 
 The final hardware/account acceptance pass remains manual because it requires a microphone,
-speakers, Picovoice key, and authenticated agent accounts. Run `docs/gate-d-checklist.md`, which
+speakers, and authenticated agent accounts. Run `docs/gate-d-checklist.md`, which
 incorporates the earlier live Gates A, C, and C2.
 
 ## Backup

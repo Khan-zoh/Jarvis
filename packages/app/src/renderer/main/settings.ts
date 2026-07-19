@@ -1,5 +1,4 @@
 import {
-  PORCUPINE_BUILTIN_KEYWORDS,
   type AccountsStatus,
   type AppConfig,
   type BackendId,
@@ -105,7 +104,6 @@ export interface SetupStatuses {
   modelsOk: boolean;
   /** At least one audio input device was detected. */
   micAvailable: boolean;
-  picovoiceSet: boolean;
   claudeOk: boolean;
   codexOk: boolean;
   googleConnected: boolean;
@@ -117,13 +115,11 @@ export interface ChecklistItem {
   optional?: boolean;
 }
 
-/** Pure derivation of the numbered first-run checklist (models → mic → picovoice key →
- * accounts → google optional). Tested against a status fixture matrix. */
+/** Pure derivation of the numbered first-run checklist. */
 export function deriveSetupChecklist(s: SetupStatuses): ChecklistItem[] {
   return [
     { label: 'download voice models', done: s.modelsOk },
     { label: 'plug in a microphone', done: s.micAvailable },
-    { label: 'add your picovoice access key', done: s.picovoiceSet },
     { label: 'sign in to claude or codex', done: s.claudeOk || s.codexOk },
     { label: 'connect google', done: s.googleConnected, optional: true }
   ];
@@ -291,7 +287,6 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
   const statuses: SetupStatuses = {
     modelsOk: false,
     micAvailable: false,
-    picovoiceSet: false,
     claudeOk: false,
     codexOk: false,
     googleConnected: false
@@ -329,28 +324,18 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
   nameInput.addEventListener('change', () => {
     if (cfg) {
       patch({ agentName: nameInput.value.trim() || cfg.agentName });
-      updateRenameWarning(nameInput.value.trim() || cfg.agentName, cfg.voice);
+      updateRenameWarning(nameInput.value.trim() || cfg.agentName);
     }
   });
 
-  // Rename warning (settings-ui task): the built-in wake word does not follow the display name.
+  // The bundled model is intentionally fixed to "hey jarvis" for this private beta.
   const renameWarning = document.createElement('p');
   renameWarning.className = 'status-line rename-warning';
   renameWarning.hidden = true;
-  renameWarning.append(
-    document.createTextNode("built-in wake word stays 'jarvis' — train a custom keyword to match ")
-  );
-  const renameLink = document.createElement('a');
-  renameLink.href = 'docs/wakeword-setup.md';
-  renameLink.textContent = 'how';
-  renameWarning.appendChild(renameLink);
+  renameWarning.textContent = "wake phrase stays 'hey jarvis' even when the display name changes";
 
-  /** Shown only when the display name no longer matches the active built-in keyword AND no
-   * custom .ppn keyword is configured (a custom keyword is presumed trained to match). */
-  const updateRenameWarning = (name: string, voice: AppConfig['voice']): void => {
-    const keyword = (voice.builtinKeyword ?? 'jarvis').toLowerCase();
-    const mismatch = !voice.customKeywordPath && name.toLowerCase() !== keyword;
-    renameWarning.hidden = !mismatch;
+  const updateRenameWarning = (name: string): void => {
+    renameWarning.hidden = name.toLowerCase() === 'jarvis';
   };
 
   const backendSelect = document.createElement('select');
@@ -423,44 +408,6 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
     if (cfg) patch({ voice: { ...cfg.voice, inputDeviceId: deviceSelect.value || null } });
   });
 
-  // Built-in keyword dropdown: the Porcupine builtins (settings-ui task). Choosing one also
-  // clears any custom .ppn so the selection unambiguously wins.
-  const keywordSelect = document.createElement('select');
-  for (const kw of PORCUPINE_BUILTIN_KEYWORDS) {
-    const opt = document.createElement('option');
-    opt.value = kw;
-    opt.textContent = kw;
-    keywordSelect.appendChild(opt);
-  }
-  keywordSelect.addEventListener('change', () => {
-    if (cfg) {
-      patch({
-        voice: { ...cfg.voice, builtinKeyword: keywordSelect.value, customKeywordPath: null }
-      });
-      customKeywordLine.hidden = true;
-      updateRenameWarning(cfg.agentName, {
-        ...cfg.voice,
-        builtinKeyword: keywordSelect.value,
-        customKeywordPath: null
-      });
-    }
-  });
-
-  // Custom .ppn picker: native dialog via dialog:pickKeywordFile; the custom path always wins
-  // over the builtin (wakeword.ts contract).
-  const customKeywordLine = statusLine('');
-  customKeywordLine.hidden = true;
-  const ppnBtn = textBtn('use a custom .ppn keyword');
-  ppnBtn.addEventListener('click', () => {
-    void api.pickKeywordFile().then((path) => {
-      if (!path || !cfg) return;
-      patch({ voice: { ...cfg.voice, customKeywordPath: path } });
-      customKeywordLine.textContent = `custom keyword: ${path}`;
-      customKeywordLine.hidden = false;
-      renameWarning.hidden = true;
-    });
-  });
-
   const sensitivityRange = document.createElement('input');
   sensitivityRange.type = 'range';
   sensitivityRange.min = '0';
@@ -474,17 +421,6 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
   ttsCheck.type = 'checkbox';
   ttsCheck.addEventListener('change', () => {
     if (cfg) patch({ voice: { ...cfg.voice, ttsEnabled: ttsCheck.checked } });
-  });
-
-  // Write-only, like every secret field: never populated from the redacted '•set' config value,
-  // only the placeholder reflects whether a key is already stored.
-  const picovoiceKeyInput = document.createElement('input');
-  picovoiceKeyInput.type = 'password';
-  picovoiceKeyInput.addEventListener('change', () => {
-    if (picovoiceKeyInput.value === '') return;
-    void api.setSecret('picovoiceAccessKey', picovoiceKeyInput.value).then(showSavedTick);
-    picovoiceKeyInput.value = '';
-    picovoiceKeyInput.placeholder = '•set';
   });
 
   /* ---- model status + download ---- */
@@ -646,12 +582,9 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
     section(
       'voice',
       field('input device', deviceSelect),
-      field('keyword', keywordSelect),
-      ppnBtn,
-      customKeywordLine,
+      statusLine("wake phrase: 'hey jarvis' — local, no account or key required"),
       field('sensitivity', sensitivityRange),
       field('speak replies', ttsCheck),
-      field('picovoice access key', picovoiceKeyInput),
       modelStatus,
       modelProgress,
       downloadBtn
@@ -699,17 +632,9 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
     hotkeyInput.value = c.ui.hotkey;
     startupCheck.checked = c.ui.launchOnStartup;
     deviceSelect.value = c.voice.inputDeviceId ?? '';
-    keywordSelect.value = c.voice.builtinKeyword ?? 'jarvis';
-    if (c.voice.customKeywordPath) {
-      customKeywordLine.textContent = `custom keyword: ${c.voice.customKeywordPath}`;
-      customKeywordLine.hidden = false;
-    } else {
-      customKeywordLine.hidden = true;
-    }
-    updateRenameWarning(c.agentName, c.voice);
+    updateRenameWarning(c.agentName);
     sensitivityRange.value = String(c.voice.sensitivity);
     ttsCheck.checked = c.voice.ttsEnabled;
-    picovoiceKeyInput.placeholder = c.voice.picovoiceAccessKey ? '•set' : '';
     brainEnabled.checked = c.secondBrain.enabled;
     brainVault.value = c.secondBrain.vaultDir;
     brainAutoCapture.checked = c.secondBrain.autoCapture;
@@ -723,9 +648,6 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
       googleStatus.textContent = 'no google account connected — set up';
       googleBtn.textContent = 'connect google';
     }
-    // Live checklist inputs carried by config: the picovoice key (redacts to '•set' when
-    // stored) and the google account.
-    statuses.picovoiceSet = c.voice.picovoiceAccessKey !== '';
     statuses.googleConnected = c.google.connectedEmail !== null;
     renderChecklist();
   };

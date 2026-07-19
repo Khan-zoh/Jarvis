@@ -1,28 +1,21 @@
-# Training a custom wake word
+# Wake-word setup
 
-Jarvis ships with the built-in Porcupine keyword **"Jarvis"**. If you rename the assistant in
-Settings, the built-in keyword does **not** follow the new name — Porcupine only recognises the
-exact keyword model it was given. To make the wake word match a custom name, train a free custom
-keyword (`.ppn`) on the Picovoice Console and point Jarvis at it.
+Jarvis uses openWakeWord locally through ONNX Runtime. There is no account, cloud service,
+company email, access key, Python runtime, or separate wake-word installation.
 
-## Steps
+Run `npm run fetch-models` from source, or click **download voice models** in Settings. This
+downloads the pinned mel-spectrogram, speech-embedding, and `hey_jarvis` classifier models into
+the Jarvis model directory. The wake phrase is **"Hey Jarvis"**.
 
-1. Go to the Picovoice Console: <https://console.picovoice.ai/> and sign in (the same free
-   account that gives you the access key).
-2. Open **Porcupine** → **Create Wake Word**.
-3. Type the phrase you want (e.g. your assistant's new name), choose **Windows (x86_64)** as the
-   platform, and **Train**. Training takes a minute or two.
-4. Download the resulting `.ppn` file.
-5. In Jarvis: **Settings → Voice → Custom wake word**, click **Choose .ppn** and select the file
-   you downloaded.
+Sensitivity is adjustable in Settings → Voice. The default `0.6` maps to openWakeWord's `0.5`
+score threshold. Raise sensitivity if Jarvis misses the phrase; lower it if ordinary speech
+causes false triggers.
 
-That's it — say the new wake word and the overlay should light up.
+For a live microphone check:
 
-## Notes
+```powershell
+npx tsx scripts/smoke/smoke-wakeword.ts
+```
 
-- The **access key** and the **keyword file** both come from the same free Picovoice account.
-- Custom `.ppn` files are tied to a platform; use the **Windows (x86_64)** build.
-- Picovoice's free tier is subject to their terms; see
-  <https://picovoice.ai/docs/terms-of-use/>.
-- If you keep the default name "Jarvis", no custom keyword is needed — the built-in keyword works
-  out of the box once the access key is set.
+The pretrained model is licensed CC BY-NC-SA 4.0, which is appropriate for this noncommercial
+private beta. A commercial release must use a separately trained or commercially licensed model.

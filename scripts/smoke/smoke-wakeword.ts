@@ -1,14 +1,13 @@
-// Manual smoke test for PorcupineWake (packages/app/src/voice/wakeword.ts). Not part of
+// Manual smoke test for native openWakeWord (packages/app/src/voice/wakeword.ts). Not part of
 // `npm test` — run by hand: `npx tsx scripts/smoke/smoke-wakeword.ts` (or
 // `node --import tsx scripts/smoke/smoke-wakeword.ts`). See cdd/tasks/wakeword.md ("Acceptance")
-// and docs/wakeword-setup.md for how to get an access key / train a custom keyword.
+// and the README for the voice setup contract.
 //
 // What it does:
-//   1. Requires `PICOVOICE_ACCESS_KEY` in the environment — exits with a clear message if unset,
-//      without touching the mic or spinning up anything else (no key is ever hardcoded here).
-//   2. Resolves ffmpeg.exe via resolveModelPaths() (reusing the same model-provisioning
+//   1. Resolves ffmpeg.exe and the three openWakeWord ONNX files via resolveModelPaths().
+//   2. Starts AudioCapture on the default input.
 //      contract as smoke-capture.ts/smoke-stt.ts) and starts AudioCapture on the default input.
-//   3. Feeds every captured frame into a real PorcupineWake instance; on each detection prints
+//   3. Feeds every captured frame into a real OpenWakeWord instance; on each detection prints
 //      `WAKE <ISO timestamp>`.
 //   4. Runs until Ctrl+C (SIGINT) or a hard watchdog timeout, then releases the detector and
 //      stops capture cleanly.
@@ -45,15 +44,12 @@ interface AudioCaptureLike {
 }
 
 interface WakeWordConfig {
-  accessKey: string;
-  builtinKeyword: string | null;
-  customKeywordPath: string | null;
   sensitivity: number;
 }
 
 interface WakeWordDetectorLike {
   init(cfg: WakeWordConfig): Promise<void>;
-  process(frame: AudioFrame): boolean;
+  process(frame: AudioFrame): Promise<boolean>;
   release(): void;
 }
 
@@ -64,19 +60,6 @@ function parseSensitivity(raw: string | undefined): number {
 }
 
 async function main(): Promise<void> {
-  // Checked first and unconditionally: never acquire/hardcode a key, and never touch the mic or
-  // ffmpeg if this isn't set — matches the task's "assert clear message when absent" contract.
-  const accessKey = process.env.PICOVOICE_ACCESS_KEY;
-  if (!accessKey) {
-    console.error('smoke-wakeword: PICOVOICE_ACCESS_KEY not set.');
-    console.error('  Get a free key at https://console.picovoice.ai/ (see docs/wakeword-setup.md),');
-    console.error('  then run: set PICOVOICE_ACCESS_KEY=<your key> && npx tsx scripts/smoke/smoke-wakeword.ts');
-    process.exitCode = 1;
-    return;
-  }
-
-  const builtinKeyword = process.env.WAKE_BUILTIN_KEYWORD ?? 'jarvis';
-  const customKeywordPath = process.env.WAKE_PPN_PATH ?? null;
   const sensitivity = parseSensitivity(process.env.WAKE_SENSITIVITY);
 
   let server: ViteDevServer | undefined;
@@ -125,9 +108,18 @@ async function main(): Promise<void> {
 
     const resolveModelPaths = modelPathsMod.resolveModelPaths as (opts?: {
       modelsRoot?: string;
-    }) => { ffmpegExe: string } | { missing: string[] };
+    }) => {
+      ffmpegExe: string;
+      wakeMelSpectrogram: string;
+      wakeEmbedding: string;
+      wakeWordModel: string;
+    } | { missing: string[] };
     const createAudioCapture = captureMod.createAudioCapture as (ffmpegPath: string) => AudioCaptureLike;
-    const createWakeWordDetector = wakewordMod.createWakeWordDetector as () => WakeWordDetectorLike;
+    const createWakeWordDetector = wakewordMod.createWakeWordDetector as (paths: {
+      melSpectrogram: string;
+      embedding: string;
+      wakeWord: string;
+    }) => WakeWordDetectorLike;
 
     const modelsRoot = join(REPO_ROOT, 'models');
     const paths = resolveModelPaths({ modelsRoot });
@@ -139,15 +131,15 @@ async function main(): Promise<void> {
     }
 
     console.log(`Using ffmpeg: ${paths.ffmpegExe}`);
-    console.log(
-      customKeywordPath
-        ? `Wake word: custom keyword file "${customKeywordPath}"`
-        : `Wake word: builtin "${builtinKeyword}"`
-    );
+    console.log('Wake phrase: "hey jarvis" (native openWakeWord ONNX)');
     console.log(`Sensitivity: ${sensitivity}`);
 
-    wake = createWakeWordDetector();
-    await wake.init({ accessKey, builtinKeyword, customKeywordPath, sensitivity });
+    wake = createWakeWordDetector({
+      melSpectrogram: paths.wakeMelSpectrogram,
+      embedding: paths.wakeEmbedding,
+      wakeWord: paths.wakeWordModel
+    });
+    await wake.init({ sensitivity });
 
     capture = createAudioCapture(paths.ffmpegExe);
 
@@ -167,12 +159,15 @@ async function main(): Promise<void> {
 
     console.log(`Listening on "${inputs[0]?.label}". Say the wake word (Ctrl+C to stop)...`);
 
+    let inference = Promise.resolve();
     await capture.start(null, (frame) => {
-      if (!wake) return;
-      const detected = wake.process(frame);
-      if (detected) {
-        console.log(`WAKE ${new Date().toISOString()}`);
-      }
+      inference = inference.then(async () => {
+        if (wake && (await wake.process(frame))) {
+          console.log(`WAKE ${new Date().toISOString()}`);
+        }
+      }).catch((err: unknown) => {
+        crashed = err instanceof Error ? err : new Error(String(err));
+      });
     });
 
     // Idle until SIGINT or the watchdog fires; the frame callback above does all the work.

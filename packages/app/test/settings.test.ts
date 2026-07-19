@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // settings-ui task: the settings pane must (a) round-trip every control through the IPC
-// surface with debounced saves + a fading `saved ✓` tick, (b) warn on rename only when the
-// name no longer matches the wake keyword, (c) capture the hotkey from a real key chord,
-// (d) offer the Porcupine builtins + a custom .ppn picker, (e) surface model status with a
+// surface with debounced saves + a fading `saved ✓` tick, (b) explain that the bundled wake
+// phrase remains fixed after rename, (c) capture the hotkey from a real key chord,
+// (d) surface model status with a
 // working streamed download, (f) probe both backend accounts with fix-hint copy, (g)
 // auto-render one section per tools-mcp plugin manifest (text/number/toggle/secret/action),
 // (h) never display a fetched secret value, and (i) drive the first-run setup checklist from
@@ -17,7 +17,7 @@ import {
   type SetupStatuses
 } from '../src/renderer/main/settings';
 import { createFakeApi, FAKE_CONFIG, type FakeApi } from '../src/renderer/shared/fakeApi';
-import { PORCUPINE_BUILTIN_KEYWORDS, type PluginManifest } from '../src/shared/types';
+import type { PluginManifest } from '../src/shared/types';
 
 const flush = async (times = 2): Promise<void> => {
   for (let i = 0; i < times; i++) await new Promise((r) => setTimeout(r, 0));
@@ -109,35 +109,32 @@ describe('deriveSetupChecklist (status fixture matrix)', () => {
   const base: SetupStatuses = {
     modelsOk: false,
     micAvailable: false,
-    picovoiceSet: false,
     claudeOk: false,
     codexOk: false,
     googleConnected: false
   };
 
-  it('all statuses off → five items, none done, google marked optional', () => {
+  it('all statuses off → four items, none done, google marked optional', () => {
     const items = deriveSetupChecklist(base);
-    expect(items).toHaveLength(5);
+    expect(items).toHaveLength(4);
     expect(items.every((i) => !i.done)).toBe(true);
     expect(items.map((i) => i.label)).toEqual([
       'download voice models',
       'plug in a microphone',
-      'add your picovoice access key',
       'sign in to claude or codex',
       'connect google'
     ]);
-    expect(items[4]?.optional).toBe(true);
-    expect(items.slice(0, 4).every((i) => !i.optional)).toBe(true);
+    expect(items[3]?.optional).toBe(true);
+    expect(items.slice(0, 3).every((i) => !i.optional)).toBe(true);
   });
 
   it('each status flips exactly its own item', () => {
     const cases: [Partial<SetupStatuses>, number][] = [
       [{ modelsOk: true }, 0],
       [{ micAvailable: true }, 1],
-      [{ picovoiceSet: true }, 2],
-      [{ claudeOk: true }, 3],
-      [{ codexOk: true }, 3],
-      [{ googleConnected: true }, 4]
+      [{ claudeOk: true }, 2],
+      [{ codexOk: true }, 2],
+      [{ googleConnected: true }, 3]
     ];
     for (const [patch, index] of cases) {
       const items = deriveSetupChecklist({ ...base, ...patch });
@@ -146,16 +143,15 @@ describe('deriveSetupChecklist (status fixture matrix)', () => {
   });
 
   it('accounts item is done when EITHER backend is ok', () => {
-    expect(deriveSetupChecklist({ ...base, claudeOk: true })[3]?.done).toBe(true);
-    expect(deriveSetupChecklist({ ...base, codexOk: true })[3]?.done).toBe(true);
-    expect(deriveSetupChecklist({ ...base, claudeOk: true, codexOk: true })[3]?.done).toBe(true);
+    expect(deriveSetupChecklist({ ...base, claudeOk: true })[2]?.done).toBe(true);
+    expect(deriveSetupChecklist({ ...base, codexOk: true })[2]?.done).toBe(true);
+    expect(deriveSetupChecklist({ ...base, claudeOk: true, codexOk: true })[2]?.done).toBe(true);
   });
 
   it('everything on → all done', () => {
     const items = deriveSetupChecklist({
       modelsOk: true,
       micAvailable: true,
-      picovoiceSet: true,
       claudeOk: true,
       codexOk: true,
       googleConnected: true
@@ -209,8 +205,8 @@ describe('buildSettingsPane', () => {
     });
 
     it('a secret save also shows the tick', async () => {
-      const input = findField(pane.el, 'picovoice access key');
-      input.value = 'pv-key';
+      const input = findField(pane.el, 'google client secret');
+      input.value = 'google-secret';
       fire(input);
       await flush();
       const tick = pane.el.querySelector('.saved-tick') as HTMLElement;
@@ -233,21 +229,11 @@ describe('buildSettingsPane', () => {
       cfg.agentName = 'friday';
       pane.applyConfig(cfg);
       expect(warning.hidden).toBe(false);
-      expect(warning.textContent).toContain("built-in wake word stays 'jarvis'");
-      expect(warning.textContent).toContain('train a custom keyword to match');
-      expect(warning.querySelector('a')?.getAttribute('href')).toBe('docs/wakeword-setup.md');
+      expect(warning.textContent).toContain("wake phrase stays 'hey jarvis'");
 
       // Back to a matching name → hidden again.
       pane.applyConfig(structuredClone(FAKE_CONFIG));
       expect(warning.hidden).toBe(true);
-    });
-
-    it('rename warning is suppressed when a custom .ppn keyword is configured', () => {
-      const cfg = structuredClone(FAKE_CONFIG);
-      cfg.agentName = 'friday';
-      cfg.voice.customKeywordPath = 'C:/keywords/friday.ppn';
-      pane.applyConfig(cfg);
-      expect((pane.el.querySelector('.rename-warning') as HTMLElement).hidden).toBe(true);
     });
 
     it('rename warning updates live on the name field, before the save lands', () => {
@@ -292,69 +278,10 @@ describe('buildSettingsPane', () => {
       await build();
     });
 
-    it('the keyword dropdown offers exactly the Porcupine builtins', () => {
-      const select = findField(pane.el, 'keyword') as unknown as HTMLSelectElement;
-      const values = Array.from(select.options).map((o) => o.value);
-      expect(values).toEqual([...PORCUPINE_BUILTIN_KEYWORDS]);
-      expect(select.value).toBe('jarvis');
-    });
-
-    it('choosing a builtin keyword saves it and clears any custom .ppn', async () => {
-      const select = findField(pane.el, 'keyword') as unknown as HTMLSelectElement;
-      select.value = 'computer';
-      fire(select);
-      await flush();
-      expect(api.calls.setConfig).toEqual([
-        { voice: { ...FAKE_CONFIG.voice, builtinKeyword: 'computer', customKeywordPath: null } }
-      ]);
-    });
-
-    it('the .ppn picker saves the chosen path and shows it', async () => {
-      api.pickedKeywordFile = 'C:/keywords/friday.ppn';
-      findButton(pane.el, 'use a custom .ppn keyword').click();
-      await flush();
-      expect(api.calls.setConfig).toEqual([
-        { voice: { ...FAKE_CONFIG.voice, customKeywordPath: 'C:/keywords/friday.ppn' } }
-      ]);
-      const line = Array.from(pane.el.querySelectorAll('.status-line')).find((p) =>
-        p.textContent?.startsWith('custom keyword:')
-      ) as HTMLElement;
-      expect(line.hidden).toBe(false);
-      expect(line.textContent).toBe('custom keyword: C:/keywords/friday.ppn');
-    });
-
-    it('a cancelled .ppn dialog saves nothing', async () => {
-      api.pickedKeywordFile = null;
-      findButton(pane.el, 'use a custom .ppn keyword').click();
-      await flush();
-      expect(api.calls.setConfig).toEqual([]);
-    });
-
-    it('setting the picovoice access key calls secret:set and never shows the value', async () => {
-      const input = findField(pane.el, 'picovoice access key');
-      expect(input.type).toBe('password');
-      input.value = 'pv-abc-123';
-      fire(input);
-      await flush();
-      expect(api.calls.setSecret).toEqual([['picovoiceAccessKey', 'pv-abc-123']]);
-      expect(input.value).toBe('');
-      expect(input.placeholder).toBe('•set');
-    });
-
-    it('an already-set picovoice key shows the masked placeholder, never the value', () => {
-      const cfg = structuredClone(FAKE_CONFIG);
-      cfg.voice.picovoiceAccessKey = '•set'; // what config:get returns once a key is stored
-      pane.applyConfig(cfg);
-      const input = findField(pane.el, 'picovoice access key');
-      expect(input.value).toBe('');
-      expect(input.placeholder).toBe('•set');
-    });
-
-    it('a blank change on the picovoice field does not call secret:set', async () => {
-      const input = findField(pane.el, 'picovoice access key');
-      fire(input);
-      await flush();
-      expect(api.calls.setSecret).toEqual([]);
+    it('shows the fixed local wake phrase and requires no key', () => {
+      expect(pane.el.textContent).toContain("wake phrase: 'hey jarvis'");
+      expect(pane.el.textContent).toContain('no account or key required');
+      expect(pane.el.textContent).not.toContain('picovoice access key');
     });
   });
 
@@ -561,16 +488,15 @@ describe('buildSettingsPane', () => {
       pane.setSetupMode(true);
       expect(sec.hidden).toBe(false);
       const items = Array.from(sec.querySelectorAll('li'));
-      expect(items).toHaveLength(5);
+      expect(items).toHaveLength(4);
       // The mic item is done: the fake api reports one input device.
       expect(items.map((li) => (li as HTMLElement).dataset['done'])).toEqual([
         'false',
         'true',
         'false',
-        'false',
         'false'
       ]);
-      expect(items[4]?.textContent).toContain('(optional)');
+      expect(items[3]?.textContent).toContain('(optional)');
     });
 
     it('items check off live as statuses turn ok', async () => {
@@ -584,21 +510,20 @@ describe('buildSettingsPane', () => {
         Array.from(pane.el.querySelectorAll('.setup-checklist li')).map(
           (li) => (li as HTMLElement).dataset['done']
         );
-      // models missing, mic ok, key unset, claude ok, google off.
-      expect(done()).toEqual(['false', 'true', 'false', 'true', 'false']);
+      // models missing, mic ok, claude ok, google off.
+      expect(done()).toEqual(['false', 'true', 'true', 'false']);
 
-      // The picovoice key gets stored → the redacted config now carries '•set'; google connects.
+      // Google connects.
       const cfg = structuredClone(FAKE_CONFIG);
-      cfg.voice.picovoiceAccessKey = '•set';
       cfg.google.connectedEmail = 'me@example.com';
       pane.applyConfig(cfg);
-      expect(done()).toEqual(['false', 'true', 'true', 'true', 'true']);
+      expect(done()).toEqual(['false', 'true', 'true', 'true']);
 
       // Models arrive (download button flow re-checks status).
       api.models = { ok: true };
       findButton(pane.el, 'download models').click();
       await flush(4);
-      expect(done()).toEqual(['true', 'true', 'true', 'true', 'true']);
+      expect(done()).toEqual(['true', 'true', 'true', 'true']);
     });
   });
 });

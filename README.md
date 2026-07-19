@@ -11,7 +11,7 @@ See `cdd/plan/overview.md` for the full vision and the architecture decision rec
 
 ## What's in the box
 
-- **Wake word** — Picovoice Porcupine (built-in "Jarvis" keyword; custom names trainable free).
+- **Wake word** — openWakeWord's local ONNX **"Hey Jarvis"** model; no account or API key.
 - **Speech-to-text** — whisper.cpp (`small.en`), run as a persistent local server.
 - **Endpointing** — Silero VAD via onnxruntime.
 - **Text-to-speech** — Piper (local neural voice).
@@ -29,14 +29,13 @@ done). The order matters:
 1. **Install** — run the NSIS installer (`Jarvis Setup <version>.exe`), or from source:
    `npm install && npm run build`.
 2. **Download voice models** — Settings → the first-run checklist has a **download voice models**
-   button (fetches whisper + piper + ffmpeg + Silero into `%APPDATA%/Jarvis/models`, ~900 MB).
+   button (fetches whisper + piper + ffmpeg + Silero + openWakeWord into
+   `%APPDATA%/Jarvis/models`, ~905 MB).
    From source you can instead run `npm run fetch-models` (add `--with-brain` for the embedder).
 3. **Plug in a microphone.**
-4. **Add your Picovoice access key** — free at <https://console.picovoice.ai/>. Paste it in
-   Settings → Voice. (To use a custom wake word, see `docs/wakeword-setup.md`.)
-5. **Sign in to a brain** — a standalone `claude` login (or `codex login`) in a terminal, so the
+4. **Sign in to a brain** — a standalone `claude` login (or `codex login`) in a terminal, so the
    spawned CLI has its own credentials. See `cdd/plan/amendments.md` A9.
-6. **Connect Google (optional)** — Settings → Accounts: paste a Google OAuth client id/secret
+5. **Connect Google (optional)** — Settings → Accounts: paste a Google OAuth client id/secret
    (`docs/google-setup.md`) and sign in.
 
 With nothing configured, the app still launches and runs **text-only**, showing exactly which
@@ -92,8 +91,8 @@ Jarvis bundles or downloads several third-party components; their licenses and t
 
 - **Fonts** (bundled) — Inter, IBM Plex Mono, and Fraunces, all under the SIL Open Font License
   (OFL) 1.1.
-- **Picovoice Porcupine** (wake word) — used under Picovoice's free-tier terms; requires your own
-  access key. See <https://picovoice.ai/docs/terms-of-use/>.
+- **openWakeWord** — Apache-2.0 code. Its bundled pretrained `hey_jarvis` model is
+  CC BY-NC-SA 4.0 and is used only for this noncommercial private beta.
 - **whisper.cpp** — MIT.
 - **Piper** — MIT; the neural voices are licensed per-voice (the default en_US-lessac-medium is
   released for free use by its author).

@@ -20,13 +20,22 @@ function touch(...segments: string[]): void {
   writeFileSync(p, 'x');
 }
 
+function touchWakeModels(): void {
+  touch('wakeword', 'melspectrogram.onnx');
+  touch('wakeword', 'embedding_model.onnx');
+  touch('wakeword', 'hey_jarvis_v0.1.onnx');
+}
+
 describe('resolveModelPaths', () => {
   it('returns the full missing list on an empty models dir', () => {
     const result = resolveModelPaths({ modelsRoot: dir });
     expect('missing' in result).toBe(true);
     if ('missing' in result) {
       expect(result.missing.sort()).toEqual(
-        ['ffmpegExe', 'ffplayExe', 'piperExe', 'piperVoice', 'sileroVad', 'whisperCli', 'whisperModel'].sort()
+        [
+          'ffmpegExe', 'ffplayExe', 'piperExe', 'piperVoice', 'sileroVad',
+          'wakeEmbedding', 'wakeMelSpectrogram', 'wakeWordModel', 'whisperCli', 'whisperModel'
+        ].sort()
       );
     }
   });
@@ -40,6 +49,7 @@ describe('resolveModelPaths', () => {
     touch('vad', 'silero_vad.onnx');
     touch('bin', 'ffmpeg', 'ffmpeg.exe');
     touch('bin', 'ffmpeg', 'ffplay.exe');
+    touchWakeModels();
 
     const result = resolveModelPaths({ modelsRoot: dir, brainEnabled: false });
     expect('missing' in result).toBe(false);
@@ -49,6 +59,7 @@ describe('resolveModelPaths', () => {
       expect(result.piperExe).toBe(join(dir, 'bin', 'piper', 'piper.exe'));
       expect(result.piperVoice).toBe(join(dir, 'piper', 'en_US-lessac-medium.onnx'));
       expect(result.sileroVad).toBe(join(dir, 'vad', 'silero_vad.onnx'));
+      expect(result.wakeWordModel).toBe(join(dir, 'wakeword', 'hey_jarvis_v0.1.onnx'));
       expect(result.ffmpegExe).toBe(join(dir, 'bin', 'ffmpeg', 'ffmpeg.exe'));
       expect(result.ffplayExe).toBe(join(dir, 'bin', 'ffmpeg', 'ffplay.exe'));
       expect(result.embedModel).toBeUndefined();
@@ -65,6 +76,7 @@ describe('resolveModelPaths', () => {
     touch('vad', 'silero_vad.onnx');
     touch('bin', 'ffmpeg', 'ffmpeg.exe');
     touch('bin', 'ffmpeg', 'ffplay.exe');
+    touchWakeModels();
 
     const withoutEmbed = resolveModelPaths({ modelsRoot: dir, brainEnabled: true });
     expect('missing' in withoutEmbed).toBe(true);
@@ -92,6 +104,7 @@ describe('resolveModelPaths', () => {
     touch('vad', 'silero_vad.onnx');
     touch('bin', 'ffmpeg', 'ffmpeg.exe');
     touch('bin', 'ffmpeg', 'ffplay.exe');
+    touchWakeModels();
 
     const result = resolveModelPaths({ modelsRoot: dir });
     expect('missing' in result).toBe(true);
@@ -110,6 +123,7 @@ describe('resolveModelPaths', () => {
     touch('vad', 'silero_vad.onnx');
     touch('bin', 'ffmpeg', 'ffmpeg.exe');
     touch('bin', 'ffmpeg', 'ffplay.exe');
+    touchWakeModels();
 
     const result = resolveModelPaths({ modelsRoot: dir });
     expect('missing' in result).toBe(false);
@@ -128,6 +142,7 @@ describe('resolveModelPaths', () => {
     touch('vad', 'silero_vad.onnx');
     touch('bin', 'ffmpeg', 'ffmpeg.exe');
     touch('bin', 'ffmpeg', 'ffplay.exe');
+    touchWakeModels();
 
     const result = resolveModelPaths({ modelsRoot: dir });
     expect('missing' in result).toBe(false);
@@ -144,6 +159,7 @@ describe('resolveModelPaths', () => {
     touch('piper', 'en_US-lessac-medium.onnx.json');
     touch('vad', 'silero_vad.onnx');
     touch('bin', 'ffmpeg', 'ffmpeg.exe');
+    touchWakeModels();
     // ffplay.exe intentionally omitted
 
     const result = resolveModelPaths({ modelsRoot: dir });

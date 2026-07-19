@@ -46,7 +46,7 @@ export interface InvokeChannels {
   'config:get': () => Promise<AppConfig>;
   'config:set': (patch: Partial<AppConfig>) => Promise<void>;
   'secret:set': (
-    key: 'picovoiceAccessKey' | 'googleClientSecret',
+    key: 'googleClientSecret',
     value: string
   ) => Promise<void>;
   'command:text': (text: string, backend?: BackendId) => Promise<void>;
@@ -78,8 +78,6 @@ export interface InvokeChannels {
   'models:status': () => Promise<ModelsStatus>;
   /** Runs fetchModels in the main process; progress lines stream on `models:progress`. */
   'models:fetch': () => Promise<ModelsFetchResult>;
-  /** Native open-file dialog filtered to Porcupine `.ppn` keyword files; null on cancel. */
-  'dialog:pickKeywordFile': () => Promise<string | null>;
   /** Recently auto-captured notes for the main-window strip (second brain). Empty when off. */
   'brain:recent': () => Promise<CapturedNote[]>;
   /** Delete a captured note by id (one-click undo). No-op when the brain is off. */
@@ -123,7 +121,6 @@ export const INVOKE = {
   accountsStatus: 'accounts:status',
   modelsStatus: 'models:status',
   modelsFetch: 'models:fetch',
-  pickKeywordFile: 'dialog:pickKeywordFile',
   brainRecent: 'brain:recent',
   brainRemove: 'brain:remove'
 } as const satisfies Record<string, keyof InvokeChannels>;
@@ -154,7 +151,6 @@ export interface IpcDeps {
   accountsStatus(): Promise<AccountsStatus>;
   modelsStatus(): Promise<ModelsStatus>;
   fetchModels(): Promise<ModelsFetchResult>;
-  pickKeywordFile(): Promise<string | null>;
   brainRecent(): Promise<CapturedNote[]>;
   brainRemove(id: string): Promise<void>;
 }
@@ -167,7 +163,7 @@ export function registerInvokeHandlers(deps: IpcDeps): void {
   });
   ipcMain.handle(
     INVOKE.secretSet,
-    async (_e, key: 'picovoiceAccessKey' | 'googleClientSecret', value: string) => {
+    async (_e, key: 'googleClientSecret', value: string) => {
       deps.config.setSecret(key, value);
     }
   );
@@ -200,7 +196,6 @@ export function registerInvokeHandlers(deps: IpcDeps): void {
   ipcMain.handle(INVOKE.accountsStatus, async () => deps.accountsStatus());
   ipcMain.handle(INVOKE.modelsStatus, async () => deps.modelsStatus());
   ipcMain.handle(INVOKE.modelsFetch, async () => deps.fetchModels());
-  ipcMain.handle(INVOKE.pickKeywordFile, async () => deps.pickKeywordFile());
   ipcMain.handle(INVOKE.brainRecent, async () => deps.brainRecent());
   ipcMain.handle(INVOKE.brainRemove, async (_e, id: string) => deps.brainRemove(id));
 }

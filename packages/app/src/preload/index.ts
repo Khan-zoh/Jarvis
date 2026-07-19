@@ -26,7 +26,7 @@ type Unsubscribe = () => void;
 export interface JarvisApi {
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<void>;
-  setSecret(key: 'picovoiceAccessKey' | 'googleClientSecret', value: string): Promise<void>;
+  setSecret(key: 'googleClientSecret', value: string): Promise<void>;
   sendText(text: string, backend?: BackendId): Promise<void>;
   cancel(): Promise<void>;
   listSessions(): Promise<SessionSummary[]>;
@@ -46,7 +46,6 @@ export interface JarvisApi {
   accountsStatus(): Promise<AccountsStatus>;
   modelsStatus(): Promise<ModelsStatus>;
   fetchModels(): Promise<ModelsFetchResult>;
-  pickKeywordFile(): Promise<string | null>;
   /** Recently auto-captured notes (second brain) for the recently-captured strip. */
   brainRecent(): Promise<CapturedNote[]>;
   /** Delete a captured note by id (one-click undo). */
@@ -102,7 +101,6 @@ export function buildPreloadApi(ipc: IpcRenderer): JarvisApi {
     accountsStatus: () => ipc.invoke(INVOKE.accountsStatus),
     modelsStatus: () => ipc.invoke(INVOKE.modelsStatus),
     fetchModels: () => ipc.invoke(INVOKE.modelsFetch),
-    pickKeywordFile: () => ipc.invoke(INVOKE.pickKeywordFile),
     brainRecent: () => ipc.invoke(INVOKE.brainRecent),
     brainRemove: (id) => ipc.invoke(INVOKE.brainRemove, id),
     onStateChanged: (fn) => subscribe(PUSH.stateChanged, fn),

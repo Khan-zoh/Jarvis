@@ -251,7 +251,7 @@ describe('MainView live events (wire-and-converse)', () => {
     expect(pane.hidden).toBe(false);
     const checklist = root.querySelector('.setup-checklist') as HTMLElement;
     expect(checklist.hidden).toBe(false);
-    expect(checklist.querySelectorAll('li')).toHaveLength(5);
+    expect(checklist.querySelectorAll('li')).toHaveLength(4);
   });
 
   it('no setup mode when config was already touched, even with models missing', async () => {

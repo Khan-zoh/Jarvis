@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { app, dialog, shell } from 'electron';
+import { app, shell } from 'electron';
 import { createGoogleAuthManager } from '@jarvis/tools-mcp/google/auth';
 import { fetchModels } from '../../../../scripts/fetch-models';
 import { pluginManifests } from '@jarvis/tools-mcp/loader';
@@ -359,14 +359,6 @@ if (!gotLock) {
         if (ok) void voiceManager.refresh();
         return { ok, failed: failed.map((f) => f.name) };
       },
-      pickKeywordFile: async () => {
-        const picked = await dialog.showOpenDialog({
-          title: 'choose a custom wake word (.ppn)',
-          filters: [{ name: 'porcupine keyword', extensions: ['ppn'] }],
-          properties: ['openFile']
-        });
-        return picked.canceled ? null : (picked.filePaths[0] ?? null);
-      }
     };
     registerInvokeHandlers(deps);
     // Startup milestone log (A7 item 5): the packaged smoke greps for this line as proof that
@@ -384,13 +376,13 @@ if (!gotLock) {
 
     // -----------------------------------------------------------------------------------------
     // Startup step 5: construct the VoicePipeline with REAL components — only when
-    // resolveModelPaths() is complete AND the Picovoice access key + a keyword are configured.
+    // resolveModelPaths() is complete (including the local openWakeWord models).
     // Otherwise stay in text-only mode and surface the reason via the 'voice:status' channel.
     // Missing prerequisites are NOT a transient error (cdd/plan/amendments.md, error-policy
     // nuance): they are a durable setup state until the user fixes the named cause.
     //
     // settings-ui task: this is no longer a one-shot startup gate. VoiceManager watches
-    // config:changed and, when a voice-relevant field (Picovoice key/keyword/device/model paths)
+    // config:changed and, when a voice-relevant field (sensitivity/device/model paths)
     // actually changes, tears down the running pipeline and rebuilds it from scratch — no app
     // restart required. A change to an unrelated field (agent name, hotkey, google, …) is a no-op.
     // -----------------------------------------------------------------------------------------
@@ -470,21 +462,13 @@ async function startVoicePipeline(
     };
   }
 
-  // Prerequisite 2: Picovoice access key + a wake keyword.
-  if (!cfg.voice.picovoiceAccessKey) {
-    return {
-      reason: 'Picovoice access key is not set — add it in Settings to enable the wake word.'
-    };
-  }
-  if (!cfg.voice.builtinKeyword && !cfg.voice.customKeywordPath) {
-    return {
-      reason: 'No wake word is configured — set a built-in keyword or a custom .ppn in Settings.'
-    };
-  }
-
   // Real components (paths always from resolveModelPaths, never PATH — amendments.md A6).
   const capture = createAudioCapture(paths.ffmpegExe);
-  const wake = createWakeWordDetector();
+  const wake = createWakeWordDetector({
+    melSpectrogram: paths.wakeMelSpectrogram,
+    embedding: paths.wakeEmbedding,
+    wakeWord: paths.wakeWordModel
+  });
   const vad = createVoiceActivityDetector(paths.sileroVad);
   const player = createPcmPlayer(paths.ffplayExe);
   const tts = new PiperTts({ piperExe: paths.piperExe, player });
@@ -520,9 +504,6 @@ async function startVoicePipeline(
 
   try {
     await wake.init({
-      accessKey: cfg.voice.picovoiceAccessKey,
-      builtinKeyword: cfg.voice.builtinKeyword,
-      customKeywordPath: cfg.voice.customKeywordPath,
       sensitivity: cfg.voice.sensitivity
     });
     await vad.init();

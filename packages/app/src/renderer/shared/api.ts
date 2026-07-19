@@ -29,7 +29,7 @@ export type Unsubscribe = () => void;
 export interface JarvisApi {
   getConfig(): Promise<AppConfig>;
   setConfig(patch: Partial<AppConfig>): Promise<void>;
-  setSecret(key: 'picovoiceAccessKey' | 'googleClientSecret', value: string): Promise<void>;
+  setSecret(key: 'googleClientSecret', value: string): Promise<void>;
   sendText(text: string, backend?: BackendId): Promise<void>;
   cancel(): Promise<void>;
   listSessions(): Promise<SessionSummary[]>;
@@ -56,8 +56,6 @@ export interface JarvisApi {
   modelsStatus(): Promise<ModelsStatus>;
   /** Runs fetchModels in the main process; watch onModelsProgress for streamed lines. */
   fetchModels(): Promise<ModelsFetchResult>;
-  /** Open-file dialog for a custom Porcupine `.ppn` keyword; null on cancel. */
-  pickKeywordFile(): Promise<string | null>;
   /** Recently auto-captured notes (second brain) for the recently-captured strip. */
   brainRecent(): Promise<CapturedNote[]>;
   /** Delete a captured note by id (one-click undo). */

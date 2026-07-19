@@ -16,6 +16,9 @@ export interface ModelPaths {
   piperExe: string;
   piperVoice: string;
   sileroVad: string;
+  wakeMelSpectrogram: string;
+  wakeEmbedding: string;
+  wakeWordModel: string;
   /** ffmpeg.exe / ffplay.exe are provisioned artifacts (cdd/plan/amendments.md A6) — audio
    * capture and TTS playback take these paths as constructor args and never resolve ffmpeg
    * from PATH. */
@@ -63,6 +66,9 @@ export function resolveModelPaths(
   const piperVoice = join(modelsRoot, 'piper', 'en_US-lessac-medium.onnx');
   const piperVoiceConfig = join(modelsRoot, 'piper', 'en_US-lessac-medium.onnx.json');
   const sileroVad = join(modelsRoot, 'vad', 'silero_vad.onnx');
+  const wakeMelSpectrogram = join(modelsRoot, 'wakeword', 'melspectrogram.onnx');
+  const wakeEmbedding = join(modelsRoot, 'wakeword', 'embedding_model.onnx');
+  const wakeWordModel = join(modelsRoot, 'wakeword', 'hey_jarvis_v0.1.onnx');
   const ffmpegExe = join(modelsRoot, 'bin', 'ffmpeg', 'ffmpeg.exe');
   const ffplayExe = join(modelsRoot, 'bin', 'ffmpeg', 'ffplay.exe');
   const embedModel = join(modelsRoot, 'embed', 'model.onnx');
@@ -74,6 +80,9 @@ export function resolveModelPaths(
   if (!existsSync(piperExe)) missing.push('piperExe');
   if (!existsSync(piperVoice) || !existsSync(piperVoiceConfig)) missing.push('piperVoice');
   if (!existsSync(sileroVad)) missing.push('sileroVad');
+  if (!existsSync(wakeMelSpectrogram)) missing.push('wakeMelSpectrogram');
+  if (!existsSync(wakeEmbedding)) missing.push('wakeEmbedding');
+  if (!existsSync(wakeWordModel)) missing.push('wakeWordModel');
   if (!existsSync(ffmpegExe)) missing.push('ffmpegExe');
   if (!existsSync(ffplayExe)) missing.push('ffplayExe');
   if (brainEnabled) {
@@ -91,6 +100,9 @@ export function resolveModelPaths(
     piperExe,
     piperVoice,
     sileroVad,
+    wakeMelSpectrogram,
+    wakeEmbedding,
+    wakeWordModel,
     ffmpegExe,
     ffplayExe
   };

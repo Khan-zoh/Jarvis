@@ -1,5 +1,5 @@
 // Tests for the settings-ui task's reactive voice re-init: a config change to a voice-relevant
-// field (Picovoice key/keyword/device/model paths) must tear down the running pipeline and build
+// field (sensitivity/device/model paths) must tear down the running pipeline and build
 // a fresh one WITHOUT an app restart; a change to an unrelated field must not touch it at all.
 
 import { describe, expect, it } from 'vitest';
@@ -58,12 +58,12 @@ describe('VoiceManager', () => {
     expect(manager.current).toEqual({ id: 1 });
   });
 
-  it('a change to the Picovoice key tears down the old runtime and builds a new one', async () => {
+  it('a change to sensitivity tears down the old runtime and builds a new one', async () => {
     const { manager, disposed, changes } = makeHarness();
     await manager.init(makeConfig());
 
     const next = makeConfig();
-    next.voice.picovoiceAccessKey = 'a-real-key';
+    next.voice.sensitivity = 0.75;
     manager.onConfigChanged(next);
     // Rebuild runs async (chained promise) — wait for it to settle.
     await flushChain(manager);
@@ -73,10 +73,8 @@ describe('VoiceManager', () => {
     expect(manager.current).toEqual({ id: 2 });
   });
 
-  it('a change to the wake keyword, sensitivity, device, or model path each rebuild', async () => {
+  it('a change to sensitivity, device, or model path each rebuild', async () => {
     const fields: Array<(c: ReturnType<typeof makeConfig>) => void> = [
-      (c) => (c.voice.builtinKeyword = 'friday'),
-      (c) => (c.voice.customKeywordPath = 'C:/keywords/custom.ppn'),
       (c) => (c.voice.sensitivity = 0.9),
       (c) => (c.voice.inputDeviceId = 'mic-2'),
       (c) => (c.voice.sttModelPath = 'C:/models/whisper.bin'),
@@ -96,13 +94,13 @@ describe('VoiceManager', () => {
 
   it('rebuild can fall back to a text-only reason; a prior text-only result is never disposed', async () => {
     const { manager, disposed, changes, setBuildResult } = makeHarness();
-    setBuildResult(() => Promise.resolve({ reason: 'Picovoice access key is not set' }));
+    setBuildResult(() => Promise.resolve({ reason: 'Voice models are missing' }));
     await manager.init(makeConfig());
-    expect(manager.current).toEqual({ reason: 'Picovoice access key is not set' });
+    expect(manager.current).toEqual({ reason: 'Voice models are missing' });
 
     setBuildResult(() => Promise.resolve({ id: 42 }));
     const next = makeConfig();
-    next.voice.picovoiceAccessKey = 'now-set';
+    next.voice.sensitivity = 0.7;
     manager.onConfigChanged(next);
     await flushChain(manager);
 
@@ -119,7 +117,7 @@ describe('VoiceManager', () => {
 
     setBuildResult(() => Promise.resolve({ reason: 'voice setup failed' }));
     const next = makeConfig();
-    next.voice.picovoiceAccessKey = 'changed-again';
+    next.voice.sensitivity = 0.7;
     manager.onConfigChanged(next);
     await flushChain(manager);
 
@@ -151,9 +149,9 @@ describe('VoiceManager', () => {
     await manager.init(makeConfig());
 
     const a = makeConfig();
-    a.voice.picovoiceAccessKey = 'key-a';
+    a.voice.sensitivity = 0.7;
     const b = makeConfig();
-    b.voice.picovoiceAccessKey = 'key-b';
+    b.voice.sensitivity = 0.8;
 
     manager.onConfigChanged(a);
     manager.onConfigChanged(b);

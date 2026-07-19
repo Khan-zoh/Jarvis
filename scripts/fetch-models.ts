@@ -135,6 +135,13 @@ const PIPER_ZIP_SHA256 = 'f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc
 const SILERO_VAD_URL =
   'https://raw.githubusercontent.com/snakers4/silero-vad/v4.0/files/silero_vad.onnx';
 
+// openWakeWord v0.5.1 is the latest upstream release that publishes the complete ONNX runtime
+// chain used by the bundled hey_jarvis classifier. Pin every artifact by hash: the app executes
+// these files locally and never downloads moving "latest" aliases.
+const OPEN_WAKE_WORD_VERSION = 'v0.5.1';
+const OPEN_WAKE_WORD_BASE_URL =
+  `https://github.com/dscripka/openWakeWord/releases/download/${OPEN_WAKE_WORD_VERSION}`;
+
 // Pinned to a specific gyan.dev release version (immutable filename — not the rolling
 // "release-essentials"/"latest" alias) per cdd/plan/amendments.md A6: ffmpeg becomes a
 // provisioned artifact, never resolved from PATH. The "essentials" build's zip packaging
@@ -239,6 +246,27 @@ export const REQUIRED_MODELS: ModelSpec[] = [
     url: SILERO_VAD_URL,
     sha256: 'a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28',
     dest: 'vad/silero_vad.onnx',
+    group: 'core'
+  },
+  {
+    name: 'openwakeword-melspectrogram',
+    url: `${OPEN_WAKE_WORD_BASE_URL}/melspectrogram.onnx`,
+    sha256: 'ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f',
+    dest: 'wakeword/melspectrogram.onnx',
+    group: 'core'
+  },
+  {
+    name: 'openwakeword-embedding',
+    url: `${OPEN_WAKE_WORD_BASE_URL}/embedding_model.onnx`,
+    sha256: '70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f',
+    dest: 'wakeword/embedding_model.onnx',
+    group: 'core'
+  },
+  {
+    name: 'openwakeword-hey-jarvis',
+    url: `${OPEN_WAKE_WORD_BASE_URL}/hey_jarvis_v0.1.onnx`,
+    sha256: '94a13cfe60075b132f6a472e7e462e8123ee70861bc3fb58434a73712ee0d2cb',
+    dest: 'wakeword/hey_jarvis_v0.1.onnx',
     group: 'core'
   },
   {

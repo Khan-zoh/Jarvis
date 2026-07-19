@@ -3,7 +3,7 @@ import type { AppConfig } from '../shared/types';
 /**
  * Reactive voice pipeline lifecycle (settings-ui task: "voice prereqs checked at startup only —
  * ADD reactive re-init"). Startup gating (src/main/index.ts's `startVoicePipeline`) only ever ran
- * once; a settings change to the Picovoice key, wake keyword, input device, or a model path had no
+ * once; a settings change to wake sensitivity, input device, or a model path had no
  * effect until the app was restarted. `VoiceManager` fixes that: it watches `config:changed` and,
  * when a voice-relevant field actually changed, tears down whatever is currently running (a live
  * runtime, or nothing in text-only mode) and rebuilds from scratch via the injected `build()`.
@@ -21,7 +21,7 @@ function isRuntime<R>(r: VoiceBuildResult<R>): r is R {
 
 export interface VoiceManagerDeps<R> {
   /** Builds a fresh voice runtime from the CURRENT config. Returns `{ reason }` for text-only mode
-   * (missing models/binaries, no Picovoice key, no keyword — same contract as the original
+   * (missing models/binaries — same contract as the original
    * `startVoicePipeline`). */
   build: () => Promise<VoiceBuildResult<R>>;
   /** Tears down a previously built runtime. Never called for a `{ reason }` result. */
@@ -29,16 +29,12 @@ export interface VoiceManagerDeps<R> {
   /** Notified after every build (initial and every rebuild) with the new current result. */
   onChange: (result: VoiceBuildResult<R>) => void;
   /** Extracts the voice-relevant subset of config to diff across changes. Defaults to the fields
-   * that actually gate/parameterize the pipeline: Picovoice key, keyword (builtin + custom path),
-   * sensitivity, input device, and the STT/TTS model paths. */
+   * that actually parameterize the pipeline: sensitivity, input device, and model paths. */
   voiceKey?: (c: AppConfig) => unknown;
 }
 
 function defaultVoiceKey(c: AppConfig): unknown {
   return {
-    picovoiceAccessKey: c.voice.picovoiceAccessKey,
-    builtinKeyword: c.voice.builtinKeyword,
-    customKeywordPath: c.voice.customKeywordPath,
     sensitivity: c.voice.sensitivity,
     inputDeviceId: c.voice.inputDeviceId,
     sttModelPath: c.voice.sttModelPath,

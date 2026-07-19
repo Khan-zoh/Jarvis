@@ -11,10 +11,7 @@ export type AssistantState =
 export interface AppConfig {
   agentName: string;                       // display + wake name, default "Jarvis"
   voice: {
-    picovoiceAccessKey: string;            // secret (safeStorage)
-    builtinKeyword: string | null;         // e.g. "jarvis" (Porcupine built-in)
-    customKeywordPath: string | null;      // .ppn file for custom names
-    sensitivity: number;                   // 0..1, default 0.6
+    sensitivity: number;                   // 0..1, default 0.6; higher = easier to trigger
     inputDeviceId: string | null;          // null = system default
     listenTimeoutMs: number;               // default 8000
     sttModelPath: string;                  // whisper model file
@@ -88,8 +85,8 @@ export interface MicLevelPush {
 
 /**
  * Result of the `voice:status` invoke channel: whether the voice pipeline is actually running,
- * and — when it is not — a human-readable reason (missing models/binaries or an unconfigured
- * Picovoice access key/keyword). Missing prerequisites are NOT a transient error; they put the
+ * and — when it is not — a human-readable reason (usually missing models/binaries). Missing
+ * prerequisites are NOT a transient error; they put the
  * app in text-only mode until the user fixes the named cause (cdd/plan/amendments.md A6, error
  * policy nuance).
  */
@@ -153,30 +150,6 @@ export interface ModelsFetchResult {
 }
 
 /**
- * Porcupine's builtin wake keywords, mirrored from `@picovoice/porcupine-node`'s
- * `BuiltinKeyword` enum (src/builtin_keywords.ts, stable since 2020). Mirrored — not imported —
- * because the renderer build must never pull in a native-addon package; the wakeword module
- * resolves these case-insensitively against the real enum at init time, so an entry here is
- * valid iff it appears there.
- */
-export const PORCUPINE_BUILTIN_KEYWORDS = [
-  'alexa',
-  'americano',
-  'blueberry',
-  'bumblebee',
-  'computer',
-  'grapefruit',
-  'grasshopper',
-  'hey google',
-  'hey siri',
-  'jarvis',
-  'ok google',
-  'picovoice',
-  'porcupine',
-  'terminator'
-] as const;
-
-/**
  * The factory-default AppConfig. Lives in shared/ (pure data, no Electron) so BOTH the main
  * process (ConfigStore's baseline) and the renderer (first-run detection for the setup
  * checklist) use the same source of truth.
@@ -184,9 +157,6 @@ export const PORCUPINE_BUILTIN_KEYWORDS = [
 export const DEFAULT_APP_CONFIG: AppConfig = {
   agentName: 'Jarvis',
   voice: {
-    picovoiceAccessKey: '',
-    builtinKeyword: 'jarvis',
-    customKeywordPath: null,
     sensitivity: 0.6,
     inputDeviceId: null,
     listenTimeoutMs: 8000,
