@@ -1,4 +1,13 @@
-# UI Design — Monochrome Editorial
+# UI Design — Modern Editorial Assistant
+
+## Private-beta UI refresh (2026-07-19)
+
+The original main-window layout below is superseded by the modern shell in
+`src/renderer/styles/modern.css`. Jarvis keeps the ink/paper/grey palette and Fraunces, Inter,
+and IBM Plex Mono type system, but now uses a vertical conversation rail, layered message
+surfaces, a floating composer, live state pill, conversation header, and raised settings drawer.
+The direction borrows the clarity and hierarchy of current assistant apps while retaining
+Jarvis's monochrome editorial identity. The overlay contract is unchanged.
 
 Hard constraints from the user: minimalist, clean black & white, "fancy fonts", **no AI
 aesthetics** — no gradients, no glow, no purple, no orbs, no sparkle icons, no chat bubbles.

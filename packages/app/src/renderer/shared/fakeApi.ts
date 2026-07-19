@@ -44,6 +44,7 @@ export interface FakeApi extends JarvisApi {
     setConfig: Partial<AppConfig>[];
     setSecret: [key: string, value: string][];
     minimize: number;
+    newSession: number;
     pluginSetConfig: [id: string, patch: Record<string, unknown>][];
     pluginSetSecret: [id: string, key: string, value: string][];
     pluginAction: [id: string, key: string][];
@@ -123,6 +124,7 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
       setConfig: [],
       setSecret: [],
       minimize: 0,
+      newSession: 0,
       pluginSetConfig: [],
       pluginSetSecret: [],
       pluginAction: [],
@@ -146,7 +148,10 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     cancel: () => Promise.resolve(),
     listSessions: () => Promise.resolve(api.sessions),
     loadSession: (id) => Promise.resolve(api.turnsBySession[id] ?? []),
-    newSession: () => Promise.resolve(),
+    newSession: () => {
+      api.calls.newSession += 1;
+      return Promise.resolve();
+    },
     connectGoogle: () => Promise.resolve({ email: 'demo@example.com' }),
     disconnectGoogle: () => Promise.resolve(),
     listAudioInputs: () => Promise.resolve([{ id: 'default', label: 'default input' }]),
