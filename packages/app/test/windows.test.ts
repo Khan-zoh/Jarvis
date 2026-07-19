@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 // windows.ts imports many electron main-process symbols at module scope; none are touched by the
 // pure computeOverlayBounds function, but the import must resolve headlessly.
 vi.mock('electron', () => ({
@@ -12,10 +14,22 @@ vi.mock('electron', () => ({
 }));
 import {
   computeOverlayBounds,
+  resolveWindowAssetPaths,
   OVERLAY_SIZE,
   OVERLAY_BOTTOM_MARGIN,
   type Rect
 } from '../src/main/windows';
+
+describe('resolveWindowAssetPaths', () => {
+  it('resolves packaged assets from an ESM main-module URL without CommonJS __dirname', () => {
+    const mainFile = join('C:\\example', 'resources', 'app.asar', 'out', 'main', 'index.js');
+    const mainDir = dirname(mainFile);
+    expect(resolveWindowAssetPaths(pathToFileURL(mainFile).href)).toEqual({
+      rendererHtml: join(mainDir, '../renderer/index.html'),
+      preload: join(mainDir, '../preload/index.mjs')
+    });
+  });
+});
 
 describe('computeOverlayBounds', () => {
   it('horizontally centers and bottom-pins on a primary display at origin', () => {

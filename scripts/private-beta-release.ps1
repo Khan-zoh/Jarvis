@@ -56,7 +56,10 @@ try {
   $env:JARVIS_USER_DATA_DIR = $smokeProfile
   $env:JARVIS_MODELS_DIR = (Join-Path $repo 'models')
   $env:JARVIS_SMOKE_EXIT_MS = '20000'
-  $smoke = Start-Process -FilePath $packagedExe -ArgumentList '--hidden' -PassThru -Wait `
+  # Deliberately launch visibly: this exercises WindowManager.showMain(), renderer HTML, and the
+  # preload path in addition to background startup. A hidden-only smoke once missed an ESM
+  # `__dirname` failure in this exact path.
+  $smoke = Start-Process -FilePath $packagedExe -PassThru -Wait `
     -WindowStyle Hidden -RedirectStandardOutput $smokeStdout -RedirectStandardError $smokeStderr
 } finally {
   $env:JARVIS_USER_DATA_DIR = $oldUserData
