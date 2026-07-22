@@ -15,9 +15,9 @@ const TOOLS_PATHS = { entryJs: 'C:/app/tools-mcp/index.js', dataDir: 'C:/data' }
 const CWD = 'C:/data/agent-cwd';
 const FIXED_NOW = new Date('2026-07-17T12:00:00.000Z');
 
-function makeBackend() {
+function makeBackend(config = makeConfig()) {
   return new ClaudeBackend({
-    getConfig: () => makeConfig(),
+    getConfig: () => config,
     toolsPaths: TOOLS_PATHS,
     cwd: CWD,
     now: () => FIXED_NOW
@@ -125,6 +125,22 @@ describe('ClaudeBackend option assembly (A1/A9)', () => {
     const { result } = await backend.startTurn({ input: 'hi', sessionId: 'prev-abc', onEvent: () => {} });
     await result;
     expect(queryMock.mock.calls[0]![0].options.resume).toBe('prev-abc');
+  });
+
+  it('enables the Claude Code tool preset only in explicit full-computer mode', async () => {
+    useStream([initOk, resultSuccess]);
+    const config = makeConfig();
+    config.agents.access = { mode: 'full', workspaceRoot: 'C:\\dev' };
+    const backend = makeBackend(config);
+    const { result } = await backend.startTurn({ input: 'work', sessionId: null, onEvent: () => {} });
+    await result;
+    const opts = queryMock.mock.calls[0]![0].options;
+    expect(opts.tools).toEqual({ type: 'preset', preset: 'claude_code' });
+    expect(opts.permissionMode).toBe('bypassPermissions');
+    expect(opts.allowDangerouslySkipPermissions).toBe(true);
+    expect(opts.settingSources).toEqual(['user']);
+    expect(opts.strictMcpConfig).toBe(false);
+    expect(opts.cwd).toBe('C:\\dev');
   });
 
   it('passes the input as the prompt', async () => {

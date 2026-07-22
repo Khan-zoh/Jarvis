@@ -309,6 +309,23 @@ describe('PiperTts', () => {
     expect(tts.speaking).toBe(false);
   });
 
+  it('starts a new response safely before the cancelled Piper process has exited', async () => {
+    const { tts, procs } = makeTts();
+    await tts.init({ voicePath: 'C:/fake/voice.onnx' });
+
+    const first = tts.speak('one');
+    tts.cancel();
+    const second = tts.speak('two');
+    expect(procs).toHaveLength(2);
+
+    // The old process exits in a microtask. It must not clear the new current process.
+    await first;
+    await tick();
+    tts.cancel();
+    expect(procs[1]?.kill).toHaveBeenCalledOnce();
+    await second;
+  });
+
   it('a piper crash rejects that speak() call but the queue continues with the next item', async () => {
     const { tts, player, procs } = makeTts();
     await tts.init({ voicePath: 'C:/fake/voice.onnx' });

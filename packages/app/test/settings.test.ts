@@ -262,7 +262,7 @@ describe('buildSettingsPane', () => {
     });
 
     it('the codex model field round-trips through config:set', async () => {
-      const input = findField(pane.el, 'codex model (restart required)');
+      const input = findField(pane.el, 'codex model');
       input.value = 'o4-mini';
       fire(input);
       await flush();

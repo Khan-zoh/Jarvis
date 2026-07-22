@@ -222,9 +222,9 @@ describe('pluginManifests', () => {
   });
 
   it('the shipped registry contains system, web, google, and brain (system declares allowUnsafePaths)', () => {
-    expect(PLUGINS.map((p) => p.id)).toEqual(['system', 'web', 'google', 'brain']);
+    expect(PLUGINS.map((p) => p.id)).toEqual(['system', 'web', 'github', 'google', 'brain']);
     const manifest = pluginManifests();
-    expect(manifest.map((m) => m.id)).toEqual(['system', 'web', 'google', 'brain']);
+    expect(manifest.map((m) => m.id)).toEqual(['system', 'web', 'github', 'google', 'brain']);
     const system = manifest.find((m) => m.id === 'system')!;
     expect(system.settings.map((s) => s.key)).toContain('allowUnsafePaths');
     expect(system.settings.find((s) => s.key === 'allowUnsafePaths')!.kind).toBe('toggle');

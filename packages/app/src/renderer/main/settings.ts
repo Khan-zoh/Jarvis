@@ -369,8 +369,6 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
     if (cfg) patch({ ui: { ...cfg.ui, launchOnStartup: startupCheck.checked } });
   });
 
-  // Not reactive: CodexBackend is constructed once at startup with a config snapshot (unlike
-  // ClaudeBackend, which reads config live). A restart is required for a model change to apply.
   const codexModelInput = textInput();
   codexModelInput.placeholder = 'default';
   codexModelInput.addEventListener('change', () => {
@@ -383,6 +381,23 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
       });
     }
   });
+
+  const accessMode = document.createElement('select');
+  for (const mode of ['restricted', 'workspace', 'full'] as const) {
+    const option = document.createElement('option');
+    option.value = mode;
+    option.textContent = mode === 'restricted' ? 'restricted — Jarvis tools only' : mode === 'workspace' ? 'workspace — files under one folder' : 'full — entire computer';
+    accessMode.append(option);
+  }
+  accessMode.addEventListener('change', () => {
+    if (cfg) patch({ agents: { ...cfg.agents, access: { ...cfg.agents.access, mode: accessMode.value as AppConfig['agents']['access']['mode'] } } });
+  });
+  const workspaceRoot = textInput();
+  workspaceRoot.placeholder = 'C:\\dev';
+  workspaceRoot.addEventListener('change', () => {
+    if (cfg) patch({ agents: { ...cfg.agents, access: { ...cfg.agents.access, workspaceRoot: workspaceRoot.value.trim() || cfg.agents.access.workspaceRoot } } });
+  });
+  const accessWarning = statusLine('full access lets both agents read, edit, run commands, and use configured MCP connections. use only on a trusted machine.');
 
   /* ---- voice ---- */
   const deviceSelect = document.createElement('select');
@@ -575,7 +590,10 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
       field('name', nameInput),
       renameWarning,
       field('default backend', backendSelect),
-      field('codex model (restart required)', codexModelInput),
+      field('codex model', codexModelInput),
+      field('computer access', accessMode),
+      field('workspace folder', workspaceRoot),
+      accessWarning,
       field('hotkey (restart required)', hotkeyInput),
       field('launch on startup', startupCheck)
     ),
@@ -629,6 +647,8 @@ export function buildSettingsPane(api: JarvisApi, opts: SettingsPaneOptions = {}
     nameInput.value = c.agentName;
     backendSelect.value = c.agents.defaultBackend;
     codexModelInput.value = c.agents.codex.model ?? '';
+    accessMode.value = c.agents.access.mode;
+    workspaceRoot.value = c.agents.access.workspaceRoot;
     hotkeyInput.value = c.ui.hotkey;
     startupCheck.checked = c.ui.launchOnStartup;
     deviceSelect.value = c.voice.inputDeviceId ?? '';

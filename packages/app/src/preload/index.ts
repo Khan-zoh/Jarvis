@@ -7,6 +7,9 @@ import type {
   AssistantState,
   BackendId,
   CapturedNote,
+  CollaborationEvent,
+  CollaborationRequest,
+  CollaborationSnapshot,
   ModelsFetchResult,
   ModelsStatus,
   PluginConfigDto,
@@ -50,6 +53,9 @@ export interface JarvisApi {
   brainRecent(): Promise<CapturedNote[]>;
   /** Delete a captured note by id (one-click undo). */
   brainRemove(id: string): Promise<void>;
+  startCollaboration(request: CollaborationRequest): Promise<{ id: string }>;
+  cancelCollaboration(): Promise<void>;
+  collaborationSnapshot(): Promise<CollaborationSnapshot>;
   onStateChanged(fn: (s: AssistantState) => void): Unsubscribe;
   onTranscript(fn: (e: TranscriptEvent) => void): Unsubscribe;
   onAgentEvent(fn: (e: AgentEvent) => void): Unsubscribe;
@@ -63,6 +69,7 @@ export interface JarvisApi {
   onBrainCaptured(fn: (note: CapturedNote) => void): Unsubscribe;
   /** A captured note was removed — remove its strip row. */
   onBrainRemoved(fn: (id: string) => void): Unsubscribe;
+  onCollaborationEvent(fn: (event: CollaborationEvent) => void): Unsubscribe;
 }
 
 /**
@@ -103,6 +110,9 @@ export function buildPreloadApi(ipc: IpcRenderer): JarvisApi {
     fetchModels: () => ipc.invoke(INVOKE.modelsFetch),
     brainRecent: () => ipc.invoke(INVOKE.brainRecent),
     brainRemove: (id) => ipc.invoke(INVOKE.brainRemove, id),
+    startCollaboration: (request) => ipc.invoke(INVOKE.collaborationStart, request),
+    cancelCollaboration: () => ipc.invoke(INVOKE.collaborationCancel),
+    collaborationSnapshot: () => ipc.invoke(INVOKE.collaborationGet),
     onStateChanged: (fn) => subscribe(PUSH.stateChanged, fn),
     onTranscript: (fn) => subscribe(PUSH.transcript, fn),
     onAgentEvent: (fn) => subscribe(PUSH.agentEvent, fn),
@@ -111,7 +121,8 @@ export function buildPreloadApi(ipc: IpcRenderer): JarvisApi {
     onMicLevel: (fn) => subscribe(PUSH.micLevel, fn),
     onModelsProgress: (fn) => subscribe(PUSH.modelsProgress, fn),
     onBrainCaptured: (fn) => subscribe(PUSH.brainCaptured, fn),
-    onBrainRemoved: (fn) => subscribe(PUSH.brainRemoved, fn)
+    onBrainRemoved: (fn) => subscribe(PUSH.brainRemoved, fn),
+    onCollaborationEvent: (fn) => subscribe(PUSH.collaborationEvent, fn)
   };
 }
 

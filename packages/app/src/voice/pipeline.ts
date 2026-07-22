@@ -438,9 +438,11 @@ export class VoicePipeline {
 
   private speakSentence(sentence: string): void {
     if (this._state !== 'speaking') this.setState('speaking');
-    const p = this.deps.tts.speak(sentence).catch(() => {
+    const p = this.deps.tts.speak(sentence).catch((err: unknown) => {
       // A TTS failure for a single sentence should not reject the whole turn; the pipeline keeps
       // going and finishTurn still resolves. (A hard error arrives via onAgentEvent 'error'.)
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[voice-pipeline] speech playback failed: ${message}`);
     });
     this.spokenPromises.push(p);
   }

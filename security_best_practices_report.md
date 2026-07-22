@@ -1,6 +1,6 @@
 # Security Best-Practices Review
 
-Review date: 2026-07-21
+Review date: 2026-07-22
 
 ## Executive summary
 
@@ -14,7 +14,9 @@ No critical or high-severity dependency advisories remain. One upstream moderate
 present through `@modelcontextprotocol/sdk`; the vulnerable Hono static-file server is not used by
 Jarvis, whose MCP server communicates locally over stdio. Renderer content is protected by a
 restrictive Content Security Policy, context isolation is enabled, Node integration is disabled,
-and IPC is exposed through a narrow preload bridge.
+and IPC is exposed through a narrow preload bridge. Agent computer access defaults to restricted
+and can be widened by the local user to one workspace or the entire computer. Full mode
+intentionally bypasses agent permission prompts and must only be used for trusted tasks.
 
 ## Findings
 
@@ -77,6 +79,19 @@ and IPC is exposed through a narrow preload bridge.
 - Added weekly Dependabot updates grouped by production and development dependencies.
 - Added a least-privilege Windows CI workflow that installs from the lockfile, builds, tests, and
   rejects critical/high production dependency advisories. Third-party actions are pinned by commit.
+
+## Opt-in full-computer access
+
+Preferences exposes three modes for both coding agents:
+
+- `restricted`: no built-in coding tools; only the reviewed Jarvis MCP tool surface.
+- `workspace`: file read/edit/search tools rooted in the configured working folder.
+- `full`: built-in coding tools, commands, user-level MCP configuration, and unrestricted local
+  filesystem access.
+
+Keep the public/default configuration on `restricted`. Full mode acts with the user's operating-
+system permissions and can execute destructive commands or disclose data if given untrusted
+instructions.
 
 ## Recheck commands
 

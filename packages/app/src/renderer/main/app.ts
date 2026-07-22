@@ -9,6 +9,7 @@ import {
 } from '../../shared/types';
 import type { JarvisApi, Unsubscribe } from '../shared/api';
 import { buildSettingsPane, type SettingsPane } from './settings';
+import { buildCollaborationPane, type CollaborationPane } from './collaboration';
 
 /** "3m ago" style relative time, lowercase and terse per the copy voice. */
 export function relativeTime(iso: string, now: Date = new Date()): string {
@@ -88,6 +89,9 @@ export class MainView {
   private activeSession: string | null = null;
   private settingsShown = false;
   private settingsPane: SettingsPane;
+  private collaborationPane: CollaborationPane;
+  private collaborationShown = false;
+  private readonly history: HTMLElement;
 
   /** In-flight turn rendered live during streaming; replaced by the persisted TurnRecord on
    * session:updated. */
@@ -206,6 +210,12 @@ export class MainView {
       });
     });
     sidebarHead.append(sidebarLabel, newThread);
+    const agentRoom = document.createElement('button');
+    agentRoom.type = 'button';
+    agentRoom.className = 'btn-agent-room';
+    agentRoom.textContent = 'Claude ↔ Codex room';
+    agentRoom.addEventListener('click', () => this.showCollaboration(!this.collaborationShown));
+    sidebarHead.append(agentRoom);
 
     const sessions = document.createElement('nav');
     sessions.className = 'sessions';
@@ -221,7 +231,8 @@ export class MainView {
     sidebar.append(sidebarHead, sessions, privacy);
 
     /* ---- conversation workspace ---- */
-    const history = document.createElement('section');
+    this.history = document.createElement('section');
+    const history = this.history;
     history.className = 'history';
     const conversationHead = document.createElement('header');
     conversationHead.className = 'conversation-head';
@@ -310,10 +321,11 @@ export class MainView {
 
     /* ---- settings pane ---- */
     this.settingsPane = buildSettingsPane(api);
+    this.collaborationPane = buildCollaborationPane(api);
 
     const panes = document.createElement('div');
     panes.className = 'panes';
-    panes.append(sidebar, history, this.settingsPane.el);
+    panes.append(sidebar, history, this.collaborationPane.el, this.settingsPane.el);
 
     app.append(titlebar, panes);
     root.appendChild(app);
@@ -381,9 +393,21 @@ export class MainView {
   }
 
   showSettings(show: boolean): void {
+    if (show && this.collaborationShown) {
+      this.collaborationShown = false;
+      this.history.hidden = false;
+      this.collaborationPane.el.hidden = true;
+    }
     this.settingsShown = show;
     this.settingsPane.el.hidden = !show;
     this.settingsBtn.dataset['active'] = String(show);
+  }
+
+  private showCollaboration(show: boolean): void {
+    this.collaborationShown = show;
+    this.history.hidden = show;
+    this.collaborationPane.el.hidden = !show;
+    if (show) this.showSettings(false);
   }
 
   private applyConfig(c: AppConfig): void {
@@ -570,6 +594,7 @@ export class MainView {
   }
 
   dispose(): void {
+    this.collaborationPane.dispose();
     document.removeEventListener('keydown', this.onKeydown);
     this.unsubs.forEach((u) => u());
   }

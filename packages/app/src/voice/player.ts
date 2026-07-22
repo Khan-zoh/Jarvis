@@ -54,10 +54,10 @@ function defaultSpawn(command: string, args: string[]): ChildProcessByStdio<Writ
 export class FfplayPcmPlayer implements PcmPlayer {
   private readonly ffplayExe: string;
   private readonly spawnFn: PlayerSpawnFn;
-  private proc: ChildProcessByStdio<Writable, null, Readable> | null = null;
-  /** Set by stop() for the currently-playing process; distinguishes "we asked it to die" (which
-   * must resolve) from a genuine unrequested crash/failure (which must reject). */
-  private stopRequested = false;
+  private active: {
+    proc: ChildProcessByStdio<Writable, null, Readable>;
+    stopRequested: boolean;
+  } | null = null;
 
   constructor(opts: FfplayPcmPlayerOptions) {
     this.ffplayExe = opts.ffplayExe;
@@ -66,8 +66,6 @@ export class FfplayPcmPlayer implements PcmPlayer {
 
   play(pcm: Int16Array, sampleRate: number): Promise<void> {
     return new Promise((resolvePromise, reject) => {
-      this.stopRequested = false;
-
       let proc: ChildProcessByStdio<Writable, null, Readable>;
       try {
         proc = this.spawnFn(this.ffplayExe, [
@@ -90,7 +88,8 @@ export class FfplayPcmPlayer implements PcmPlayer {
         return;
       }
 
-      this.proc = proc;
+      const playback = { proc, stopRequested: false };
+      this.active = playback;
       let settled = false;
       let stderr = '';
 
@@ -102,20 +101,20 @@ export class FfplayPcmPlayer implements PcmPlayer {
       proc.on('error', (err) => {
         if (settled) return;
         settled = true;
-        this.proc = null;
+        if (this.active === playback) this.active = null;
         reject(err);
       });
 
       proc.on('exit', (code, signal) => {
         if (settled) return;
         settled = true;
-        this.proc = null;
+        if (this.active === playback) this.active = null;
         // A non-zero/killed exit we asked for via stop() still resolves (per the PcmPlayer
         // contract, cancellation is not a playback error). An unrequested non-zero exit (a bad
         // argument, a codec/device failure, etc.) is a genuine failure and must reject —
         // otherwise callers can't tell "played fine" from "silently never played" (see the
         // module comment above for exactly this bug).
-        if (!this.stopRequested && code !== 0) {
+        if (!playback.stopRequested && code !== 0) {
           reject(new Error(`ffplay exited with code ${code ?? 'null'} (signal=${signal ?? 'null'}): ${stderr.trim()}`));
           return;
         }
@@ -133,10 +132,12 @@ export class FfplayPcmPlayer implements PcmPlayer {
   }
 
   stop(): void {
-    this.stopRequested = true;
-    this.proc?.kill();
+    const playback = this.active;
+    if (!playback) return;
+    playback.stopRequested = true;
+    playback.proc.kill();
     // Do not null out `proc` here — the 'exit' handler wired in play() is what resolves the
-    // in-flight promise and clears `this.proc`; stop() just requests the process die.
+    // in-flight promise and clears the matching active process; stop() just requests it die.
   }
 }
 
