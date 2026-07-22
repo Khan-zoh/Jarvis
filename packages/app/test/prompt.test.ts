@@ -6,7 +6,11 @@ const FIXED_NOW = new Date('2026-07-15T09:30:00.000Z');
 
 describe('buildSystemPrompt', () => {
   it('matches the snapshot for a default config at a fixed time', () => {
-    expect(buildSystemPrompt(makeConfig(), FIXED_NOW)).toMatchSnapshot();
+    const prompt = buildSystemPrompt(makeConfig(), FIXED_NOW).replace(
+      /\(timezone: [^)]+\)/,
+      '(timezone: <local>)'
+    );
+    expect(prompt).toMatchSnapshot();
   });
 
   it('contains the identity line with the configured agent name', () => {

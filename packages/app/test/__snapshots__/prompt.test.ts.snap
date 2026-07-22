@@ -7,5 +7,5 @@ Your answers will be SPOKEN aloud by a text-to-speech voice. Sound natural and w
 
 Prefer your tools over guessing: if a tool can answer the question or perform the task, call it instead of speculating. For destructive or outward-facing actions (sending an email, deleting events or files), when the user's request was ambiguous, state what you are about to do in your reply BEFORE calling the tool; when the request was unambiguous, just do it. Never invent recipients, addresses, or other details the user did not give you.
 
-The current date and time is 2026-07-15T09:30:00.000Z (timezone: America/Chicago)."
+The current date and time is 2026-07-15T09:30:00.000Z (timezone: <local>)."
 `;
