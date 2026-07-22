@@ -19,7 +19,7 @@
     "rebuild:electron": "electron-rebuild --force --which-module better-sqlite3 --module-dir packages/app"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10",
     "@types/node": "^26.1.1"
   }
