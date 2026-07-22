@@ -22,6 +22,11 @@ export interface AppConfig {
     defaultBackend: BackendId;             // default 'claude'
     claude: { systemPromptExtra: string };
     codex: { model: string | null };       // null = codex default
+    access: {
+      mode: 'restricted' | 'workspace' | 'full';
+      /** Working directory used by both coding agents when access is enabled. */
+      workspaceRoot: string;
+    };
   };
   google: { clientId: string; clientSecret: string; connectedEmail: string | null };
   ui: { launchOnStartup: boolean; hotkey: string /* e.g. "Ctrl+Shift+Space" */ };
@@ -142,6 +147,45 @@ export interface AccountsStatus {
   codex: BackendProbe;
 }
 
+export interface CollaborationRequest {
+  task: string;
+  claudeRole: string;
+  codexRole: string;
+  /** Number of Claude/Codex exchange pairs, 1..5. */
+  rounds: number;
+  firstSpeaker: BackendId;
+}
+
+export interface CollaborationMessage {
+  id: string;
+  at: string;
+  backend: BackendId;
+  role: string;
+  text: string;
+  updates: string[];
+  tools: { toolName: string; ok: boolean }[];
+}
+
+export interface CollaborationSnapshot {
+  id: string | null;
+  status: 'idle' | 'running' | 'completed' | 'cancelled' | 'error';
+  request: CollaborationRequest | null;
+  activeBackend: BackendId | null;
+  messages: CollaborationMessage[];
+  error?: string;
+}
+
+export type CollaborationEvent =
+  | { kind: 'snapshot'; snapshot: CollaborationSnapshot }
+  | { kind: 'agent_started'; backend: BackendId; role: string; turn: number; totalTurns: number }
+  | { kind: 'agent_update'; backend: BackendId; text: string }
+  | { kind: 'tool_start'; backend: BackendId; toolName: string; summary: string }
+  | { kind: 'tool_end'; backend: BackendId; toolName: string; ok: boolean }
+  | { kind: 'message'; message: CollaborationMessage }
+  | { kind: 'completed' }
+  | { kind: 'cancelled' }
+  | { kind: 'error'; message: string };
+
 /** Result of the `models:status` invoke — `resolveModelPaths` distilled for the settings UI. */
 export type ModelsStatus = { ok: true } | { ok: false; missing: string[] };
 
@@ -170,7 +214,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   agents: {
     defaultBackend: 'claude',
     claude: { systemPromptExtra: '' },
-    codex: { model: null }
+    codex: { model: null },
+    access: { mode: 'restricted', workspaceRoot: 'C:\\dev' }
   },
   google: { clientId: '', clientSecret: '', connectedEmail: null },
   ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' },

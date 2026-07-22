@@ -6,6 +6,9 @@ import type {
   AssistantState,
   BackendId,
   CapturedNote,
+  CollaborationEvent,
+  CollaborationRequest,
+  CollaborationSnapshot,
   ModelsFetchResult,
   ModelsStatus,
   PluginConfigDto,
@@ -37,6 +40,7 @@ export interface PushChannels {
   'brain:captured': (note: CapturedNote) => void;
   /** An auto-capture was removed (undo, "forget that", or cross-window sync) — remove its row. */
   'brain:removed': (id: string) => void;
+  'collaboration:event': (event: CollaborationEvent) => void;
 }
 
 /**
@@ -82,6 +86,9 @@ export interface InvokeChannels {
   'brain:recent': () => Promise<CapturedNote[]>;
   /** Delete a captured note by id (one-click undo). No-op when the brain is off. */
   'brain:remove': (id: string) => Promise<void>;
+  'collaboration:start': (request: CollaborationRequest) => Promise<{ id: string }>;
+  'collaboration:cancel': () => Promise<void>;
+  'collaboration:get': () => Promise<CollaborationSnapshot>;
 }
 
 /** Canonical push (main → renderer) channel names. The single source of truth. */
@@ -94,7 +101,8 @@ export const PUSH = {
   micLevel: 'mic:level',
   modelsProgress: 'models:progress',
   brainCaptured: 'brain:captured',
-  brainRemoved: 'brain:removed'
+  brainRemoved: 'brain:removed',
+  collaborationEvent: 'collaboration:event'
 } as const satisfies Record<string, keyof PushChannels>;
 
 /** Canonical invoke (renderer → main) channel names. The single source of truth. */
@@ -122,7 +130,10 @@ export const INVOKE = {
   modelsStatus: 'models:status',
   modelsFetch: 'models:fetch',
   brainRecent: 'brain:recent',
-  brainRemove: 'brain:remove'
+  brainRemove: 'brain:remove',
+  collaborationStart: 'collaboration:start',
+  collaborationCancel: 'collaboration:cancel',
+  collaborationGet: 'collaboration:get'
 } as const satisfies Record<string, keyof InvokeChannels>;
 
 /**
@@ -153,6 +164,9 @@ export interface IpcDeps {
   fetchModels(): Promise<ModelsFetchResult>;
   brainRecent(): Promise<CapturedNote[]>;
   brainRemove(id: string): Promise<void>;
+  startCollaboration(request: CollaborationRequest): Promise<{ id: string }>;
+  cancelCollaboration(): Promise<void>;
+  collaborationSnapshot(): Promise<CollaborationSnapshot>;
 }
 
 /** Wires every InvokeChannel to its handler on `ipcMain`. Call once, after `app.whenReady()`. */
@@ -198,4 +212,9 @@ export function registerInvokeHandlers(deps: IpcDeps): void {
   ipcMain.handle(INVOKE.modelsFetch, async () => deps.fetchModels());
   ipcMain.handle(INVOKE.brainRecent, async () => deps.brainRecent());
   ipcMain.handle(INVOKE.brainRemove, async (_e, id: string) => deps.brainRemove(id));
+  ipcMain.handle(INVOKE.collaborationStart, async (_e, request: CollaborationRequest) =>
+    deps.startCollaboration(request)
+  );
+  ipcMain.handle(INVOKE.collaborationCancel, async () => deps.cancelCollaboration());
+  ipcMain.handle(INVOKE.collaborationGet, async () => deps.collaborationSnapshot());
 }

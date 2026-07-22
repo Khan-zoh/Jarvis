@@ -5,6 +5,8 @@ import type {
   AssistantState,
   BackendId,
   CapturedNote,
+  CollaborationRequest,
+  CollaborationSnapshot,
   ModelsFetchResult,
   ModelsStatus,
   PluginConfigDto,
@@ -39,6 +41,7 @@ export interface FakeApi extends JarvisApi {
   fetchResult: ModelsFetchResult;
   /** What brainRecent() resolves with; set before constructing a view. */
   capturedNotes: CapturedNote[];
+  collaboration: CollaborationSnapshot;
   calls: {
     sendText: [text: string, backend: BackendId | undefined][];
     setConfig: Partial<AppConfig>[];
@@ -50,6 +53,8 @@ export interface FakeApi extends JarvisApi {
     pluginAction: [id: string, key: string][];
     fetchModels: number;
     brainRemove: string[];
+    collaborationStart: CollaborationRequest[];
+    collaborationCancel: number;
   };
   pushState(s: AssistantState): void;
   pushTranscript(e: TranscriptEvent): void;
@@ -60,6 +65,7 @@ export interface FakeApi extends JarvisApi {
   pushModelsProgress(line: string): void;
   pushBrainCaptured(note: CapturedNote): void;
   pushBrainRemoved(id: string): void;
+  pushCollaborationEvent(event: import('../../shared/types').CollaborationEvent): void;
 }
 
 export const FAKE_CONFIG: AppConfig = {
@@ -75,7 +81,8 @@ export const FAKE_CONFIG: AppConfig = {
   agents: {
     defaultBackend: 'claude',
     claude: { systemPromptExtra: '' },
-    codex: { model: null }
+    codex: { model: null },
+    access: { mode: 'restricted', workspaceRoot: 'C:\\dev' }
   },
   google: { clientId: '', clientSecret: '', connectedEmail: null },
   ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' },
@@ -119,6 +126,7 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     accounts: { claude: { ok: true }, codex: { ok: true } },
     fetchResult: { ok: true, failed: [] },
     capturedNotes: [],
+    collaboration: { id: null, status: 'idle', request: null, activeBackend: null, messages: [] },
     calls: {
       sendText: [],
       setConfig: [],
@@ -129,7 +137,9 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
       pluginSetSecret: [],
       pluginAction: [],
       fetchModels: 0,
-      brainRemove: []
+      brainRemove: [],
+      collaborationStart: [],
+      collaborationCancel: 0
     },
 
     getConfig: () => Promise.resolve(api.config),
@@ -187,6 +197,49 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
       api.calls.brainRemove.push(id);
       return Promise.resolve();
     },
+    startCollaboration: (request) => {
+      api.calls.collaborationStart.push(request);
+      api.collaboration = {
+        id: 'demo-collaboration',
+        status: 'running',
+        request,
+        activeBackend: request.firstSpeaker,
+        messages: []
+      };
+      emit('collaboration:event', { kind: 'snapshot', snapshot: structuredClone(api.collaboration) });
+      const order: BackendId[] =
+        request.firstSpeaker === 'claude' ? ['claude', 'codex'] : ['codex', 'claude'];
+      order.forEach((backend, index) => {
+        setTimeout(() => {
+          const message = {
+            id: `demo-${backend}`,
+            at: new Date().toISOString(),
+            backend,
+            role: backend === 'claude' ? request.claudeRole : request.codexRole,
+            text:
+              backend === 'claude'
+                ? 'I’ll define the architecture, surface the riskiest assumptions, and give Codex a concrete implementation boundary.'
+                : 'I checked that proposal against the code path. I’ll implement the smallest testable slice and report the verification evidence.',
+            updates: [`${backend} inspected the task and prepared a handoff`],
+            tools: [{ toolName: 'workspace_search', ok: true }]
+          };
+          api.collaboration.messages.push(message);
+          emit('collaboration:event', { kind: 'message', message });
+          if (index === order.length - 1) {
+            api.collaboration.status = 'completed';
+            api.collaboration.activeBackend = null;
+            emit('collaboration:event', { kind: 'completed' });
+            emit('collaboration:event', { kind: 'snapshot', snapshot: structuredClone(api.collaboration) });
+          }
+        }, 120 + index * 180);
+      });
+      return Promise.resolve({ id: 'demo-collaboration' });
+    },
+    cancelCollaboration: () => {
+      api.calls.collaborationCancel += 1;
+      return Promise.resolve();
+    },
+    collaborationSnapshot: () => Promise.resolve(api.collaboration),
 
     onStateChanged: (fn) => on('state:changed', fn as Listener),
     onTranscript: (fn) => on('transcript', fn as Listener),
@@ -197,6 +250,7 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     onModelsProgress: (fn) => on('models:progress', fn as Listener),
     onBrainCaptured: (fn) => on('brain:captured', fn as Listener),
     onBrainRemoved: (fn) => on('brain:removed', fn as Listener),
+    onCollaborationEvent: (fn) => on('collaboration:event', fn as Listener),
 
     pushState: (s) => emit('state:changed', s),
     pushTranscript: (e) => emit('transcript', e),
@@ -206,7 +260,8 @@ export function createFakeApi(config: AppConfig = structuredClone(FAKE_CONFIG)):
     pushMicLevel: (level) => emit('mic:level', level),
     pushModelsProgress: (line) => emit('models:progress', line),
     pushBrainCaptured: (note) => emit('brain:captured', note),
-    pushBrainRemoved: (id) => emit('brain:removed', id)
+    pushBrainRemoved: (id) => emit('brain:removed', id),
+    pushCollaborationEvent: (event) => emit('collaboration:event', event)
   };
 
   return api;

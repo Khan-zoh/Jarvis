@@ -17,10 +17,17 @@ See `cdd/plan/overview.md` for the full vision and the architecture decision rec
 - **Endpointing** — Silero VAD via onnxruntime.
 - **Text-to-speech** — Piper (local neural voice).
 - **Brains** — Claude Agent SDK + `@openai/codex-sdk`, both on subscription auth (no API keys).
-- **Tools** — one stdio MCP server (`packages/tools-mcp`), plugin-based: google, system, web,
-  and the second-brain memory. Shared by both brains.
+- **Tools** — one stdio MCP server (`packages/tools-mcp`), plugin-based: Google, GitHub, system,
+  web, and the second-brain memory. Shared by both brains.
 - **Second brain** — an optional local Obsidian-compatible markdown vault with on-device ONNX
   embeddings for recall/auto-capture.
+- **Agent room** — assign Claude and Codex different roles, give them one shared task, and watch
+  every response, progress update, tool call, and handoff in an alternating collaboration run.
+- **Computer access modes** — restricted (Jarvis tools only), workspace (file operations inside a
+  chosen folder), or full (coding tools and commands across the computer). Full access is opt-in.
+- **External apps** — both agents share Jarvis MCP plugins, including Google Workspace and GitHub
+  through an authenticated `gh` CLI. Codex also loads MCP servers configured in the user's Codex
+  configuration; Claude loads user-level connections when workspace/full access is enabled.
 
 ## Setup order
 
@@ -79,7 +86,7 @@ jarvis/
   package.json                 # workspace root
   packages/
     app/                       # Electron app (main + preload + renderer)
-    tools-mcp/                 # standalone MCP stdio server (google, system, web, brain tools)
+    tools-mcp/                 # standalone MCP server (Google, GitHub, system, web, brain)
   scripts/                     # fetch-models, make-icon, smoke scripts
   docs/                        # setup + gate checklists + release notes
   models/                      # fetched at runtime into %APPDATA%/Jarvis/models when packaged

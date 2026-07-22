@@ -131,6 +131,32 @@ describe('CodexBackend — instance & thread option assembly', () => {
     });
   });
 
+  it('maps workspace and full computer access to the matching Codex sandbox', async () => {
+    const cfg = makeConfig();
+    cfg.agents.access = { mode: 'workspace', workspaceRoot: 'C:\\dev' };
+    const { backend, fakeRef } = makeBackend(
+      [
+        { events: [started('t1'), agentMsg('ok'), turnCompleted] },
+        { events: [started('t2'), agentMsg('ok'), turnCompleted] }
+      ],
+      { cfg }
+    );
+    await backend.startTurn({ input: 'workspace', sessionId: null, onEvent: () => {} });
+    expect(fakeRef().threads[0]!.opts).toMatchObject({
+      workingDirectory: 'C:\\dev',
+      sandboxMode: 'workspace-write',
+      approvalPolicy: 'never'
+    });
+
+    cfg.agents.access.mode = 'full';
+    await backend.startTurn({ input: 'full', sessionId: null, onEvent: () => {} });
+    expect(fakeRef().threads[1]!.opts).toMatchObject({
+      workingDirectory: 'C:\\dev',
+      sandboxMode: 'danger-full-access',
+      approvalPolicy: 'never'
+    });
+  });
+
   it('omits model when cfg.agents.codex.model is null', async () => {
     const { backend, fakeRef } = makeBackend([{ events: [started('t1'), agentMsg('ok'), turnCompleted] }], {
       cfg: configWithModel(null)

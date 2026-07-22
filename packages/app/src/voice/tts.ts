@@ -249,14 +249,14 @@ export class PiperTts implements TextToSpeech {
       proc.on('error', (err) => {
         if (settled) return;
         settled = true;
-        this.currentProc = null;
+        if (this.currentProc === proc) this.currentProc = null;
         reject(err instanceof Error ? err : new Error(String(err)));
       });
 
       proc.on('exit', (code, signal) => {
         if (settled) return;
         settled = true;
-        this.currentProc = null;
+        if (this.currentProc === proc) this.currentProc = null;
         if (code !== 0) {
           reject(
             new Error(`piper exited with code ${code ?? 'null'} (signal=${signal ?? 'null'}): ${stderr.trim()}`)

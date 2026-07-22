@@ -26,6 +26,7 @@ import { SessionStore } from '../agents/sessions';
 import { AgentRouter } from '../agents/router';
 import { ClaudeBackend } from '../agents/claude';
 import { CodexBackend } from '../agents/codex';
+import { CollaborationManager } from '../agents/collaboration';
 import { createBrainRuntime, type BrainRuntime } from '../agents/brain/runtime';
 import { detectOffTheRecord } from '../agents/brain/offTheRecord';
 import type { AppConfig } from '../shared/types';
@@ -104,7 +105,7 @@ if (!gotLock) {
     const agentCwd = join(userData, 'agent-cwd');
     mkdirSync(agentCwd, { recursive: true });
     const claude = new ClaudeBackend({ getConfig: () => config.get(), toolsPaths, cwd: agentCwd });
-    const codex = new CodexBackend(config.get(), toolsPaths);
+    const codex = new CodexBackend(() => config.get(), toolsPaths);
 
     // Let the disposable tools-mcp worker resolve the embedding model (brain plugin) — its cwd is
     // not guaranteed to be the repo root, so it reads JARVIS_MODELS_DIR (see toolsLauncher).
@@ -165,6 +166,11 @@ if (!gotLock) {
       providers: brain ? [brain.provider] : [],
       observers: brain ? [brain.observer] : []
     });
+    const collaboration = new CollaborationManager({
+      backends: { claude, codex },
+      normalTurnBusy: () => router.busy,
+      emit: (event) => wm.broadcast('collaboration:event', event)
+    });
 
     // -----------------------------------------------------------------------------------------
     // Startup step 6 seam: the Conductor fans agent events to the pipeline (TTS) + IPC, pushes
@@ -176,6 +182,8 @@ if (!gotLock) {
       sessions,
       pipeline: () => voiceRuntime?.pipeline ?? null,
       broadcast: (ch, ...args) => wm.broadcast(ch, ...args),
+      blocked: () =>
+        collaboration.busy ? 'Claude and Codex are collaborating. Stop that run before starting a normal turn.' : null,
       // Off-the-record voice path (A8): only active when the brain runs. "forget that" also
       // removes the most recent auto-capture and syncs the UI.
       offTheRecord: brain
@@ -329,6 +337,9 @@ if (!gotLock) {
         await brain.remove(id);
         wm.broadcast('brain:removed', id);
       },
+      startCollaboration: async (request) => ({ id: collaboration.start(request) }),
+      cancelCollaboration: async () => collaboration.cancel(),
+      collaborationSnapshot: async () => collaboration.snapshot(),
       // Both backends probed via their real init() (settings-ui task: the accounts section's
       // status lines + fix hints come from these results, not hard-coded copy). init() caches an
       // ok result (B2), so invalidate first — the settings UI wants a LIVE status (the user may

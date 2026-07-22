@@ -56,6 +56,7 @@ export class CodexBackend implements AgentBackend {
   private readonly checkLogin: () => Promise<ProbeResult>;
   private readonly healthCheck: (spec: ToolsMcpSpec) => Promise<ProbeResult>;
   private readonly now: () => Date;
+  private readonly getConfig: () => AppConfig;
 
   /**
    * Cached readiness (B2): init() spawns a login-status child AND a full MCP tools/list probe,
@@ -65,11 +66,13 @@ export class CodexBackend implements AgentBackend {
   private initPromise: Promise<ProbeResult> | null = null;
 
   constructor(
-    private readonly cfg: AppConfig,
+    cfg: AppConfig | (() => AppConfig),
     paths: { entryJs: string; dataDir: string },
     deps: CodexBackendDeps = {}
   ) {
-    this.toolsSpec = toolsMcpSpec(cfg, paths);
+    this.getConfig = typeof cfg === 'function' ? cfg : () => cfg;
+    const initialConfig = this.getConfig();
+    this.toolsSpec = toolsMcpSpec(initialConfig, paths);
     this.now = deps.now ?? ((): Date => new Date());
     this.checkLogin = deps.checkLogin ?? defaultCheckLogin;
     this.healthCheck = deps.healthCheck ?? defaultHealthCheck;
@@ -129,13 +132,30 @@ export class CodexBackend implements AgentBackend {
 
   /** Thread options shared by new and resumed threads (A9-verified containment). */
   private threadOptions(): ThreadOptions {
+    const cfg = this.getConfig();
+    const access = cfg.agents.access ?? {
+      mode: 'restricted' as const,
+      workspaceRoot: this.toolsSpec.env.JARVIS_DATA_DIR
+    };
+    const requestedRoot = access.workspaceRoot?.trim();
+    const workingDirectory =
+      access.mode === 'restricted'
+        ? this.toolsSpec.env.JARVIS_DATA_DIR
+        : requestedRoot && existsSync(requestedRoot)
+          ? requestedRoot
+          : this.toolsSpec.env.JARVIS_DATA_DIR;
     const opts: ThreadOptions = {
       skipGitRepoCheck: true,
-      workingDirectory: this.toolsSpec.env.JARVIS_DATA_DIR,
-      sandboxMode: 'read-only',
+      workingDirectory,
+      sandboxMode:
+        access.mode === 'full'
+          ? 'danger-full-access'
+          : access.mode === 'workspace'
+            ? 'workspace-write'
+            : 'read-only',
       approvalPolicy: 'never'
     };
-    const model = this.cfg.agents.codex.model;
+    const model = cfg.agents.codex.model;
     if (model) opts.model = model;
     return opts;
   }
@@ -152,7 +172,7 @@ export class CodexBackend implements AgentBackend {
       : this.codex.resumeThread(sessionId, this.threadOptions());
 
     // Codex threads carry no system-prompt option → prepend it to the first input of a NEW thread.
-    const turnInput = isNew ? `${buildSystemPrompt(this.cfg, this.now())}\n\n${input}` : input;
+    const turnInput = isNew ? `${buildSystemPrompt(this.getConfig(), this.now())}\n\n${input}` : input;
 
     const ac = new AbortController();
     // Return the handle synchronously (backends must not block on the SDK before handing back a

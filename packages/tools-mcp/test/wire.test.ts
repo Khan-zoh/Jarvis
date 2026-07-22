@@ -92,7 +92,7 @@ describe('tools-mcp wire', () => {
       displayName: string;
       settings: Array<{ key: string; kind: string }>;
     }>;
-    expect(manifest.map((m) => m.id)).toEqual(['system', 'web', 'google', 'brain']);
+    expect(manifest.map((m) => m.id)).toEqual(['system', 'web', 'github', 'google', 'brain']);
     for (const entry of manifest) {
       expect(typeof entry.displayName).toBe('string');
       expect(Array.isArray(entry.settings)).toBe(true);

@@ -222,16 +222,35 @@ export class ClaudeBackend implements AgentBackend {
   ): Options {
     const cfg = this.getConfig();
     const spec = toolsMcpSpec(cfg, this.toolsPaths);
+    const access = cfg.agents.access ?? { mode: 'restricted' as const, workspaceRoot: this.cwd };
+    const accessCwd =
+      access.mode !== 'restricted' && access.workspaceRoot && existsSync(access.workspaceRoot)
+        ? access.workspaceRoot
+        : this.cwd;
     const options: Options = {
       abortController: ac,
-      tools: [], // A1/A9: remove ALL Claude Code built-ins — jarvisTools MCP only.
-      permissionMode: 'dontAsk', // A1/A9: deny-by-default, NOT bypassPermissions.
-      allowedTools: ALLOWED_TOOLS, // server-wide jarvisTools grant, nothing else.
-      settingSources: [], // A9: no user/project settings sources.
-      strictMcpConfig: true, // A9: only the MCP servers we pass here.
+      tools:
+        access.mode === 'full'
+          ? { type: 'preset', preset: 'claude_code' }
+          : access.mode === 'workspace'
+            ? ['Read', 'Write', 'Edit', 'Glob', 'Grep']
+            : [],
+      permissionMode: access.mode === 'full' ? 'bypassPermissions' : 'dontAsk',
+      ...(access.mode === 'full' ? { allowDangerouslySkipPermissions: true } : {}),
+      ...(access.mode === 'restricted'
+        ? { allowedTools: ALLOWED_TOOLS, settingSources: [] as const, strictMcpConfig: true }
+        : {
+            allowedTools:
+              access.mode === 'workspace'
+                ? [...ALLOWED_TOOLS, 'Read', 'Write', 'Edit', 'Glob', 'Grep']
+                : undefined,
+            settingSources: ['user'] as const,
+            strictMcpConfig: false,
+            additionalDirectories: access.mode === 'workspace' ? [accessCwd] : undefined
+          }),
       includePartialMessages: opts.stream, // A9: required for 'stream_event' text deltas.
       maxTurns: opts.probe ? 1 : MAX_TURNS,
-      cwd: this.cwd, // A1: non-sensitive empty cwd.
+      cwd: accessCwd,
       systemPrompt: buildSystemPrompt(cfg, this.now()),
       mcpServers: {
         [MCP_SERVER_NAME]: {

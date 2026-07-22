@@ -121,4 +121,24 @@ describe('FfplayPcmPlayer', () => {
     procs[1]?.emit('exit', 1, null);
     await expect(p2).rejects.toThrow(/ffplay exited with code 1/);
   });
+
+  it('a late exit from stopped playback cannot detach the next active playback', async () => {
+    const procs: FakeProc[] = [];
+    const spawnFn = vi.fn(() => {
+      const proc = makeFakeProc();
+      procs.push(proc);
+      return proc;
+    }) as unknown as PlayerSpawnFn;
+    const player = new FfplayPcmPlayer({ ffplayExe: 'ffplay.exe', spawnFn });
+
+    const first = player.play(new Int16Array([1]), 16000);
+    player.stop();
+    // Start the next response before the killed process emits its asynchronous exit.
+    const second = player.play(new Int16Array([2]), 16000);
+
+    await expect(first).resolves.toBeUndefined();
+    player.stop();
+    expect(procs[1]?.kill).toHaveBeenCalledOnce();
+    await expect(second).resolves.toBeUndefined();
+  });
 });

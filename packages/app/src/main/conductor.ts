@@ -40,6 +40,8 @@ export interface ConductorDeps {
    * (text-only mode) or replaced (tray pause/resume). */
   pipeline: () => ConductorPipeline | null;
   broadcast: Broadcast;
+  /** Returns a user-facing reason when normal turns are temporarily blocked. */
+  blocked?: () => string | null;
   /**
    * Off-the-record hook (second brain). Present only when the brain is enabled. `detect` marks an
    * utterance; `forgetLast` removes the most recent auto-capture for "forget that". A bare
@@ -117,6 +119,11 @@ export class Conductor {
     backend: BackendId | undefined,
     onEvent: (e: AgentEvent) => void
   ): Promise<void> {
+    const blocked = this.deps.blocked?.();
+    if (blocked) {
+      onEvent({ kind: 'error', message: blocked });
+      return;
+    }
     // Barge-in ordering (B1): if a barge-in interrupt is pending, wait for the interrupted turn
     // to fully settle (busy flag cleared) BEFORE dispatching — no race, no busy refusal.
     const settled = this.pendingBargeIn;

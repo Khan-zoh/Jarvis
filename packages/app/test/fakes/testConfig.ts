@@ -23,7 +23,8 @@ export function makeConfig(overrides?: {
     agents: {
       defaultBackend: overrides?.defaultBackend ?? 'claude',
       claude: { systemPromptExtra: overrides?.systemPromptExtra ?? '' },
-      codex: { model: null }
+      codex: { model: null },
+      access: { mode: 'restricted', workspaceRoot: 'C:\\dev' }
     },
     google: { clientId: '', clientSecret: '', connectedEmail: null },
     ui: { launchOnStartup: false, hotkey: 'Ctrl+Shift+Space' },

@@ -3,6 +3,7 @@ import brainPlugin from './plugins/brain/index.js';
 import googlePlugin from './plugins/google/index.js';
 import systemPlugin from './plugins/system/index.js';
 import webPlugin from './plugins/web/index.js';
+import githubPlugin from './plugins/github/index.js';
 
 /**
  * Plugin loader (binding — cdd/plan/tools-and-google.md + cdd/plan/amendments.md A4).
@@ -11,7 +12,7 @@ import webPlugin from './plugins/web/index.js';
  * and add its default export here. Nothing else changes — not the backends, not the allowlist,
  * not the settings UI (see cdd/plan/extending.md).
  */
-export const PLUGINS: ToolPlugin[] = [systemPlugin, webPlugin, googlePlugin, brainPlugin];
+export const PLUGINS: ToolPlugin[] = [systemPlugin, webPlugin, githubPlugin, googlePlugin, brainPlugin];
 
 /** Default per-call timeout (amendments A4); override per tool via ToolDef.timeoutMs. */
 export const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
