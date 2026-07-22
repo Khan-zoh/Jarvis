@@ -101,9 +101,14 @@ function loadRenderer(win: BrowserWindow, view?: 'overlay'): void {
  */
 function wireExternalLinks(webContents: Electron.WebContents): void {
   const handle = (rawUrl: string): void => {
-    if (/^(https?|mailto):/.test(rawUrl)) {
-      void shell.openExternal(rawUrl);
+    let url: URL;
+    try {
+      url = new URL(rawUrl);
+    } catch {
+      return;
     }
+    if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) return;
+    void shell.openExternal(url.toString());
   };
   // window.open / target=_blank / anchor clicks that would spawn a window.
   webContents.setWindowOpenHandler(({ url }) => {
