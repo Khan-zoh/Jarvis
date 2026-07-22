@@ -5,6 +5,14 @@ out/
 models/
 scratch/
 *.local
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.bin
 .vite/
 .playwright-cli/
 *.log

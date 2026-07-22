@@ -192,7 +192,10 @@ export class MainView {
     const newThread = document.createElement('button');
     newThread.type = 'button';
     newThread.className = 'btn-new-thread';
-    newThread.innerHTML = '<span aria-hidden="true">＋</span> new conversation';
+    const newThreadIcon = document.createElement('span');
+    newThreadIcon.setAttribute('aria-hidden', 'true');
+    newThreadIcon.textContent = '＋';
+    newThread.append(newThreadIcon, ' new conversation');
     newThread.addEventListener('click', () => {
       void this.api.newSession().then(async () => {
         this.activeSession = null;
@@ -210,7 +213,11 @@ export class MainView {
     sessions.appendChild(this.sessionList);
     const privacy = document.createElement('div');
     privacy.className = 'sidebar-foot';
-    privacy.innerHTML = '<span class="privacy-dot"></span><span>local memory</span>';
+    const privacyDot = document.createElement('span');
+    privacyDot.className = 'privacy-dot';
+    const privacyLabel = document.createElement('span');
+    privacyLabel.textContent = 'local memory';
+    privacy.append(privacyDot, privacyLabel);
     sidebar.append(sidebarHead, sessions, privacy);
 
     /* ---- conversation workspace ---- */
@@ -293,7 +300,11 @@ export class MainView {
     composerDock.className = 'composer-dock';
     const composerHint = document.createElement('div');
     composerHint.className = 'composer-hint';
-    composerHint.innerHTML = '<span>tab switches model</span><span>voice ready on “jarvis”</span>';
+    const modelHint = document.createElement('span');
+    modelHint.textContent = 'tab switches model';
+    const voiceHint = document.createElement('span');
+    voiceHint.textContent = 'voice ready on “jarvis”';
+    composerHint.append(modelHint, voiceHint);
     composerDock.append(this.capturedSection, bar, composerHint);
     history.append(conversationHead, this.setupNotice, this.transcript, composerDock);
 
