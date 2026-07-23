@@ -1,7 +1,8 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { createRequire } from 'node:module';
-import { existsSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { AgentEvent, AppConfig, BackendId } from '../shared/types';
 import type { AgentBackend, TurnHandle } from './types';
 import { buildSystemPrompt } from './prompt';
@@ -70,8 +71,26 @@ export function resolveClaudeCli(): string | null {
   if (!pkg) return null;
   const bin = process.platform === 'win32' ? 'claude.exe' : 'claude';
   try {
-    const exe = toUnpackedPath(createRequire(import.meta.url).resolve(`${pkg}/${bin}`));
-    return existsSync(exe) ? exe : null;
+    const require = createRequire(import.meta.url);
+    const packageDir = dirname(toUnpackedPath(require.resolve(`${pkg}/package.json`)));
+    const exe = join(packageDir, bin);
+    if (existsSync(exe)) return exe;
+
+    // Claude Code's updater first renames the managed executable to
+    // `claude.exe.old.<timestamp>`. If its replacement download is interrupted, the SDK leaves
+    // only that backup behind and its generic launch error incorrectly talks about Linux libc.
+    // Jarvis owns this bundled copy, so restore the newest backup before launching it.
+    if (process.platform === 'win32') {
+      const backup = readdirSync(packageDir)
+        .filter((name) => name.startsWith(`${bin}.old.`))
+        .sort()
+        .at(-1);
+      if (backup) {
+        copyFileSync(join(packageDir, backup), exe);
+        return exe;
+      }
+    }
+    return null;
   } catch {
     return null;
   }
@@ -251,6 +270,9 @@ export class ClaudeBackend implements AgentBackend {
       includePartialMessages: opts.stream, // A9: required for 'stream_event' text deltas.
       maxTurns: opts.probe ? 1 : MAX_TURNS,
       cwd: accessCwd,
+      // The CLI binary is bundled and versioned with the SDK. Its self-updater must not mutate
+      // the installed application (an interrupted update can otherwise delete claude.exe).
+      env: { ...process.env, DISABLE_AUTOUPDATER: '1' },
       systemPrompt: buildSystemPrompt(cfg, this.now()),
       mcpServers: {
         [MCP_SERVER_NAME]: {

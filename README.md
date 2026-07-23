@@ -42,7 +42,9 @@ done). The order matters:
    From source you can instead run `npm run fetch-models` (add `--with-brain` for the embedder).
 3. **Plug in a microphone.**
 4. **Sign in to a brain** — a standalone `claude` login (or `codex login`) in a terminal, so the
-   spawned CLI has its own credentials. See `cdd/plan/amendments.md` A9.
+   spawned CLI has its own credentials. When authenticating with Jarvis's bundled Claude binary,
+   set `DISABLE_AUTOUPDATER=1`; Jarvis manages that binary as part of the app. See
+   `cdd/plan/amendments.md` A9.
 5. **Connect Google (optional)** — Settings → Accounts: paste a Google OAuth client id/secret
    (`docs/google-setup.md`) and sign in.
 
