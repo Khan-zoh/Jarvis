@@ -102,6 +102,7 @@ describe('ClaudeBackend option assembly (A1/A9)', () => {
     expect(opts.includePartialMessages).toBe(true); // required for deltas
     expect(opts.maxTurns).toBe(12);
     expect(opts.cwd).toBe(CWD);
+    expect(opts.env.DISABLE_AUTOUPDATER).toBe('1');
     expect(opts.abortController).toBeInstanceOf(AbortController);
     expect(typeof opts.systemPrompt).toBe('string');
     expect(opts.systemPrompt).toContain("You are Jarvis, a voice assistant on the user's Windows PC.");
